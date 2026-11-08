@@ -59,3 +59,26 @@ reconnection without replaying sent mutations. Sent requests rejected by a disco
 or timeout have an `unknown` outcome; requests rejected before sending have a
 `not-sent` outcome. Reconnection is explicit and repeats initialization. This layer
 does not yet provide state reconciliation, browser facades, or durable deduplication.
+
+## Host state and scheduling adapters
+
+`HostState.open(dataDirectory)` loads `webui-state.json` from a WebUI-owned
+application data directory. The caller must choose a location separate from the
+desktop application's files. The adapter is not yet wired into renderer bootstrap.
+It implements `readValue`, `writeValue`, `readGlobalState`, `updateGlobalState`,
+and the observed application-state `read`/`write` result envelopes.
+
+One host must own each directory; independent processes sharing a directory are
+not supported. Concurrent updates within that host are serialized. Writes use a
+private temporary file, fsync, and atomic rename before publication. Values use
+JSON serialization semantics; `undefined` deletes a key. Corrupt state fails at
+startup instead of silently resetting preferences. Each subscriber receives a
+cloned initial snapshot synchronously, then committed revisions in order. Disposal
+removes only that subscriber. Failed subscribers cannot interrupt other listeners.
+Tests cover concurrent updates, reopening persisted state, subscription disposal,
+failed writes, and corrupt state.
+
+`HostScheduler.schedule(callback, delayMs)` matches the observed manager calling
+convention and returns an idempotent cancellation function. Host disposal cancels
+all pending callbacks. It deliberately omits browser animation-frame methods so
+the manager uses its observed timer fallback.
