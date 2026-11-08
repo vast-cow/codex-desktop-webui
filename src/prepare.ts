@@ -21,12 +21,13 @@ await copyFile(resolve(dirname(archivePath), 'THIRD_PARTY_NOTICES.txt'), resolve
 const html = (await readFile(resolve(output, 'webview/index.html'))).toString();
 // Only the separate entry is adapted; extracted vendor files remain byte-identical.
 const standalone = html.replace(/<meta http-equiv="Content-Security-Policy"[\s\S]*?>/i, '')
-  .replace('<head>', `<head>\n<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:">\n<script src="/bridge.js"></script>`);
+  .replace('<head>', `<head>\n<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:">\n<script type="module" src="/bridge.js"></script>`);
 await writeFile(resolve(output, 'standalone.html'), standalone);
 await copyFile(resolve('dist/src/browser-bridge.js'), resolve(output, 'bridge.js'));
+await copyFile(resolve('dist/src/wire.js'), resolve(output, 'wire.js'));
 const manifest = { schemaVersion: 1, archiveSha256: await hashFile(archivePath), applicationVersion: packageInfo.version,
   modules: { manager: { id: 'V7mA', export: 'O3' }, rpc: { id: 'Fkn8' } }, files,
-  generatedFiles: { 'standalone.html': sha256(standalone), 'bridge.js': sha256(await readFile(resolve(output, 'bridge.js'))),
+  generatedFiles: { 'wire.js': sha256(await readFile(resolve(output, 'wire.js'))), 'standalone.html': sha256(standalone), 'bridge.js': sha256(await readFile(resolve(output, 'bridge.js'))),
     'THIRD_PARTY_NOTICES.txt': sha256(await readFile(resolve(output, 'THIRD_PARTY_NOTICES.txt'))) },
   patches: [], entry: { originalSha256: files['webview/index.html'], generatedSha256: sha256(standalone) } };
 await writeFile(resolve(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

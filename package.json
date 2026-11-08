@@ -14,9 +14,11 @@
     "assets:check": "tsx src/check-assets.ts",
     "upstream:check": "tsx src/check-upstream.ts",
     "dev": "tsx src/serve.ts",
-    "start": "node dist/src/serve.js"
+    "start": "node dist/src/serve.js",
+    "test:feasibility": "npm run build --silent && node --test dist/test/feasibility/*.test.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.2",
     "tsx": "^4.20.0",

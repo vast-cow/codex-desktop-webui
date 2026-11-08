@@ -1,6 +1,6 @@
 # Observed host contracts
 
-These observations come from the pinned packaged modules, not an asserted complete implementation contract. Only module import has been exercised.
+These observations come from the pinned packaged modules, not an asserted complete implementation contract. Module import and central-manager execution have been exercised; the original renderer workflow remains unverified.
 
 ## Central manager
 
@@ -11,9 +11,9 @@ These observations come from the pinned packaged modules, not an asserted comple
 - `storage`, `threadProjectAssignments`, `savedReadState`, and `filesystem`.
 - `runtime`, `settings`, `tracing`, `useTailHydration`, and `runtimeSettings`; optional lifecycle/account availability services are also referenced.
 
-The constructor checks `transport.hostId === hostId`. It constructs ownership coordination, queued follow-up handling, history pagination, resume recovery, workspace membership, filesystem watches, unread state, attachment services, account lifecycle, and thread discovery. Supplying empty objects would not be a valid manager integration. Explicit adapters and meaningful unsupported-operation errors are required.
+The constructor checks `transport.hostId === hostId`. It constructs ownership coordination, queued follow-up handling, history pagination, resume recovery, workspace membership, filesystem watches, unread state, attachment services, account lifecycle, and thread discovery. `manager-adapters.ts` now supplies explicit local services for the fixture-tested execution paths. Supplying empty objects would not be a valid manager integration. Explicit adapters and meaningful unsupported-operation errors are required.
 
-Keep one manager independent of browser lifetimes. RPC stub disposal must release only the browser's leases/subscriptions. Manager retirement is a distinct host operation. Approval arbitration, mutation idempotency, unknown-outcome handling, snapshot ordering, and upstream reconnection still need implementations and tests.
+Keep one manager independent of browser lifetimes. RPC stub disposal must release only the browser's leases/subscriptions. Manager retirement is a distinct host operation. The vendor manager plus host transport now pass competing-approval and browser-reconnect tests. Durable mutation deduplication and automatic upstream reconciliation remain unimplemented.
 
 ## Renderer services
 
@@ -21,11 +21,11 @@ Module `hms3` requires `appServices.appServerManagers`. Observed calls include `
 
 Module `Wbxh` requires `appServices.applicationState`, including `read(key)` returning `{value}` and `write(key, value)` returning `{success}`. Thread membership, project catalog, project presentation, and thread metadata can have separate service overrides. A generic WebSocket JSON relay cannot reproduce these capabilities or their lifecycle.
 
-`appInfo`, account state, workspace initialization, service bootstrap transport, and the complete legacy `electronBridge` message schema remain to be traced and implemented. Do not fabricate login or subscription status to satisfy renderer startup. The diagnostic bridge intentionally reports missing host services.
+`appInfo`, account state, workspace initialization, service bootstrap transport, and the complete legacy `electronBridge` message schema remain to be traced and implemented. Do not fabricate login or subscription status to satisfy renderer startup. The bridge now transports the existing bootstrap port and reports unavailable native operations.
 
 ## Upstream and application boundaries
 
-The intended transport is a Node WebSocket client connected through AF_UNIX with ordinary JSON frames. Its socket path must be explicit; `/rpc` is the proposed upgrade-path default. The original AF_UNIX transport is implemented in `src/upstream.ts` and fixture-tested. It is not yet connected to the vendor manager. No existing server process or configuration has been changed.
+The intended transport is a Node WebSocket client connected through AF_UNIX with ordinary JSON frames. Its socket path must be explicit; `/rpc` is the proposed upgrade-path default. The original AF_UNIX transport is implemented in `src/upstream.ts` and fixture-tested. The worker now connects it to the vendor manager. No existing server process or configuration has been changed.
 
 The future host must keep credentials server-side and WebUI state separate from desktop state. Browser clients share the configured account and host workspace access, with no WebUI authentication. The intended listener is `0.0.0.0:3000`; browser URLs must stay relative to their origin. ChatGPT chat, Pages, and other unrelated cloud products must remain outside the implemented surface. The diagnostic entry's CSP permits only the serving origin for connections.
 
@@ -64,7 +64,7 @@ does not yet provide state reconciliation, browser facades, or durable deduplica
 
 `HostState.open(dataDirectory)` loads `webui-state.json` from a WebUI-owned
 application data directory. The caller must choose a location separate from the
-desktop application's files. The adapter is not yet wired into renderer bootstrap.
+desktop application's files. The worker exposes it through the application-state service and legacy persisted-atom bootstrap.
 It implements `readValue`, `writeValue`, `readGlobalState`, `updateGlobalState`,
 and the observed application-state `read`/`write` result envelopes.
 
@@ -106,3 +106,28 @@ constructor binding list alone misses. Computed nonliteral members are excluded.
 These are source references, not verified callable signatures or requiredness:
 helper functions, renamed fields, aliases, and runtime-selected members still
 require separate tracing before writing adapters.
+
+## Worker and browser boundaries
+
+`SharedManager` starts compiled JavaScript in a dedicated worker, avoiding loader
+injection into code evaluated in the vendor VM. The worker verifies pinned
+factory hashes, applies only the recorded `cxUs` substitution, creates one manager,
+and owns its transport, scheduler, and WebUI state for the host lifetime.
+
+Each browser's `connect-app-host` port gets an independent root service and
+registry/account capabilities. Subscription leases dispose retained callbacks,
+while the manager remains host-owned. Account reads use the upstream server.
+The initialize result is not treated as a semantic server version: version-gated
+features stay disabled until verified server-version metadata is available.
+
+The WebSocket carries a tagged JSON representation of Cap'n Web's structured
+frames, preserving `undefined`, bytes, big integers, and nonfinite numbers. On
+worker ingress, arrays and records are recreated in the vendor VM: prototype
+identity is significant to the bundled RPC decoder. Transport errors also become
+VM-realm Errors so they can cross the RPC boundary without serialization failures.
+
+Implemented startup capabilities include `appServerManagers`, account reads/auth
+subscriptions, `applicationState`, `appInfo`, `startup`, and the default execution
+host. Persistent thread workspace associations and unread state use the WebUI
+store. Desktop dynamic tools and deferred archive operations fail explicitly.
+The facade is incomplete for other renderer services.
