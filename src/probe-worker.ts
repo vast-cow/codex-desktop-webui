@@ -1,3 +1,4 @@
+import { managerContract } from './manager-contract.js';
 import { decodeHTMLStrict } from 'entities';
 import { sha256 } from './asar.js';
 import { parentPort, workerData } from 'node:worker_threads';
@@ -49,6 +50,6 @@ const candidateLoader = new ModuleLoader(candidateTable, { decodeNamedEntity: (n
 let candidateOutcome;
 try { const exports = candidateLoader.require('V7mA'); candidateOutcome = { status: 'loaded', managerType: typeof exports.O3 }; }
 catch (error: any) { candidateOutcome = { status: 'blocked', message: error.message, stack: error.stack, loaded: candidateLoader.loaded }; }
-parentPort!.postMessage({ candidate: { id: 'cxUs', purpose: 'Replace DOM-backed named HTML entity decoder in worker only',
+parentPort!.postMessage({ managerContract: managerContract(table.get('V7mA')!.source), candidate: { id: 'cxUs', purpose: 'Replace DOM-backed named HTML entity decoder in worker only',
   chunk: original.chunk, expectedFactorySha256: sha256(original.source), replacementFactorySha256: sha256(replacement), outcome: candidateOutcome }, indexedModules: table.size, chunks: chunks.length,
   closure: [...closure].sort().map(id => ({ id, ...table.get(id), source: undefined })), outcomes });

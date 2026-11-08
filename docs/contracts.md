@@ -28,3 +28,17 @@ Module `Wbxh` requires `appServices.applicationState`, including `read(key)` ret
 The intended transport is a Node WebSocket client connected through AF_UNIX with ordinary JSON frames. Its socket path must be explicit; `/rpc` is the proposed upgrade-path default. No transport implementation is included yet, and no existing server process or configuration has been changed.
 
 The future host must keep credentials server-side and WebUI state separate from desktop state. Browser clients share the configured account and host workspace access, with no WebUI authentication. The intended listener is `0.0.0.0:3000`; browser URLs must stay relative to their origin. ChatGPT chat, Pages, and other unrelated cloud products must remain outside the implemented surface. The diagnostic entry's CSP permits only the serving origin for connections.
+
+## Reproducible constructor inventory
+
+The compatibility worker now includes `managerContract` in `.generated/probe.json`.
+It statically resolves the `O3` export and inspects its constructor's options
+binding without executing the constructor. The pinned bundle exposes 19 bindings;
+five have default expressions. A default expression is not evidence that a service
+can safely be omitted during real execution. Other options accessed indirectly
+(such as lifecycle and account availability) are outside this inventory.
+
+The scanner rejects missing exports, unsupported constructor signatures, and
+missing bindings. Tests verify inert inspection and rejection of changed shapes.
+This inventory guides adapter implementation; it does not constitute constructor
+execution or satisfaction of the two-browser proof gate.
