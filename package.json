@@ -12,7 +12,9 @@
     "build": "tsc",
     "test": "tsx --test test/*.test.ts",
     "assets:check": "tsx src/check-assets.ts",
-    "upstream:check": "tsx src/check-upstream.ts"
+    "upstream:check": "tsx src/check-upstream.ts",
+    "dev": "tsx src/serve.ts",
+    "start": "node dist/src/serve.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

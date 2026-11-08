@@ -1,6 +1,6 @@
 # Feasibility status
 
-The first milestone remains incomplete. No later milestone is implemented. The CLI harness is runnable, but there is no browser host, working renderer service facade, account integration, or verified live upstream connection yet. Do not interpret successful module import as successful manager execution.
+The first milestone remains incomplete. No later milestone is implemented. The CLI harness is runnable, and a browser asset host is available, but there is no working renderer service facade, account integration, or verified live upstream connection yet. Do not interpret successful module import as successful manager execution.
 
 ## Reproducing the experiment
 

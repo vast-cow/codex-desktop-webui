@@ -7,5 +7,8 @@ if (await hashFile(archive) !== manifest.archiveSha256) throw Error('Original ar
 for (const [path, hash] of Object.entries(manifest.files)) {
   if (await hashFile(resolve('.generated', path)) !== hash) throw Error(`Extracted asset mismatch: ${path}`);
 }
+for (const [path, hash] of Object.entries(manifest.generatedFiles ?? {})) {
+  if (await hashFile(resolve('.generated', path)) !== hash) throw Error(`Generated asset mismatch: ${path}`);
+}
 if (await hashFile('.generated/standalone.html') !== manifest.entry.generatedSha256) throw Error('Generated entry mismatch');
 console.log(`Verified original archive and ${Object.keys(manifest.files).length} extracted files.`);
