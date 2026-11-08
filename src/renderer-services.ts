@@ -38,17 +38,32 @@ export function rendererServices(bindings: any) {
     get() { return appInfo; }
     getPackagingInfo() { return { isPackaged: false }; }
     getLocaleInfo() { return { ideLocale: 'en-US', systemLocale: 'en-US' }; }
+    getSystemInfo() { return { platform: appInfo.platform, arch: appInfo.arch }; }
+  }
+  class WorkspaceRoots extends RpcTarget {
+    read() { return host('workspaceRoots'); }
+    // Reads are immutable snapshots and start no cancellable background work.
+    cancel() {}
+  }
+  class ExecutionPaths extends RpcTarget {
+    readHomePaths() { return host('homePaths'); }
+    async readCodexHome() { return (await host('homePaths')).codexHome; }
+    readHomeDirectory() { return host('homeDirectory'); }
   }
   class Startup extends RpcTarget {
+    private phases = new Set<string>();
     whenReady() { return null; }
     isSentryEnabled() { return false; }
+    reach(phase: string) { this.phases.add(phase); }
   }
   class ExecutionHosts extends RpcTarget {
     getDefaultHost() { return manager.getHostId(); }
   }
   class Root extends RpcTarget {
     get services() { return { appServerManagers: new Registry(), applicationState: new ApplicationState(),
-      appInfo: new AppInfo(), startup: new Startup(), executionHosts: new ExecutionHosts(), windowAppServerEvents: 'all' }; }
+      appInfo: new AppInfo(), startup: new Startup(), workspaceRoots: new WorkspaceRoots(), executionPaths: new ExecutionPaths(),
+      requestUserInputAutoResolution: { enabled: false },
+      executionHosts: new ExecutionHosts(), windowAppServerEvents: 'all' }; }
   }
   return { root: new Root(), dispose() { for (const cleanup of cleanups) cleanup(); cleanups.clear(); } };
 }

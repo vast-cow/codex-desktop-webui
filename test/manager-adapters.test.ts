@@ -16,6 +16,18 @@ test('manager adapter uses actual upstream account/config and persists host-owne
   const adapters = managerAdapters(state, upstream, directory);
   t.after(async () => { upstream.close(); await adapters.dispose(); await fixture.close(); await rm(directory, { recursive: true, force: true }); });
   await upstream.connect();
+  const queue = adapters.options.runtime.queuedMessages;
+  assert.equal(queue.automaticExecutionEnabled, true);
+  assert.equal(queue.tryAcquireStartTurn('thread'), true);
+  assert.equal(queue.tryAcquireStartTurn('thread'), false);
+  queue.releaseStartTurn('thread');
+  const lock = await queue.acquireSendLock('thread', 'message');
+  assert.ok(lock);
+  assert.equal(await queue.acquireSendLock('thread', 'message'), null);
+  await lock.release(false);
+  const retry = await queue.acquireSendLock('thread', 'message'); assert.ok(retry);
+  await retry.release(true);
+  assert.equal(await queue.acquireSendLock('thread', 'message'), null);
   assert.equal((await adapters.options.transport.sendRequest('account/read', { refreshToken: false })).account.type, 'apiKey');
   assert.equal(adapters.options.transport.getAppServerVersion(), undefined);
   const assignment = { projectId: 'temporary-project' };

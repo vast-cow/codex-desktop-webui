@@ -12,6 +12,11 @@
     "rpc": {
       "id": "Fkn8",
       "chunk": "async/398566.8e977c1734.js"
+    },
+    "persistedRecord": {
+      "id": "waIq",
+      "export": "m",
+      "chunk": "async/182735.d3d917f28d.js"
     }
   },
   "chunks": {

@@ -13,7 +13,14 @@ export async function appServerFixture(socketPath: string, cwd: string) {
     ephemeral: false, turns: [{ id: 'history-turn', status: 'completed', error: null,
       items: [{ id: 'history-user', type: 'userMessage', content: [{ type: 'text', text: 'Previous message', text_elements: [] }] },
         { id: 'history-agent', type: 'agentMessage', text: 'Previous answer', phase: 'final_answer' }] }] };
-  const notify = (method: string, params: unknown) => { for (const peer of wss.clients) peer.send(JSON.stringify({ method, params })); };
+  const notify = (method: string, params: any) => {
+    const turn = thread.turns.find((turn: any) => turn.id === params.turnId);
+    if (turn && method === 'item/started') turn.items.push(structuredClone(params.item));
+    if (turn && method === 'item/agentMessage/delta') {
+      const item = turn.items.find((item: any) => item.id === params.itemId); if (item) item.text += params.delta;
+    }
+    for (const peer of wss.clients) peer.send(JSON.stringify({ method, params }));
+  };
   wss.on('connection', socket => socket.on('message', data => {
     const frame = JSON.parse(data.toString()); frames.push(frame);
     if (!frame.method) return;
@@ -23,8 +30,11 @@ export async function appServerFixture(socketPath: string, cwd: string) {
       case 'initialized': return;
       case 'account/read': result = { account: { type: 'apiKey' }, requiresOpenaiAuth: true }; break;
       case 'getAuthStatus': result = { authMethod: 'apikey' }; break;
+      case 'account/gatewayOAuth/read': result = { required: false, status: 'notConfigured' }; break;
       case 'config/read': result = { config: { model: 'fixture-model', model_provider: 'openai', approval_policy: 'on-request' }, version: 'fixture', layers: [] }; break;
       case 'configRequirements/read': result = { requirements: null }; break;
+      case 'experimentalFeature/list':
+      case 'mcpServerStatus/list': result = { data: [], nextCursor: null }; break;
       case 'model/list': result = { data: [{ id: 'fixture-model', model: 'fixture-model', displayName: 'Fixture', isDefault: true, supportedReasoningEfforts: [] }], nextCursor: null }; break;
       case 'thread/list': result = { data: [thread], nextCursor: null }; break;
       case 'thread/read': result = { thread }; break;
@@ -45,7 +55,7 @@ export async function appServerFixture(socketPath: string, cwd: string) {
     socket.send(JSON.stringify({ id: frame.id, result }));
   }));
   server.listen(socketPath); await once(server, 'listening');
-  return { frames, thread, wss, notify,
+  return { version: '0.127.0', frames, thread, wss, notify,
     approval(id: string) { for (const peer of wss.clients) peer.send(JSON.stringify({ id, method: 'item/commandExecution/requestApproval', params: { threadId: thread.id, turnId: thread.turns.at(-1).id, itemId: 'command', command: 'echo fixture', cwd, reason: 'Fixture approval' } })); },
     async close() { for (const socket of wss.clients) socket.terminate(); wss.close(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }

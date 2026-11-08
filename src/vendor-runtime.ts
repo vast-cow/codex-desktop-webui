@@ -1,3 +1,5 @@
+import vm from 'node:vm';
+import { createDisposableStack } from './disposable-stack.js';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { decodeHTMLStrict } from 'entities';
@@ -24,5 +26,7 @@ export async function loadVendorRuntime(root: string) {
     const input = `&${name};`, output = decodeHTMLStrict(input);
     return (output.charCodeAt(output.length - 1) !== 59 || name === 'semi') && output !== input && output;
   } });
-  return { loader, manager: loader.require('V7mA'), rpc: loader.require('Fkn8'), manifest };
+  const manager = loader.require('V7mA'), rpc = loader.require('Fkn8');
+  loader.context.DisposableStack = vm.runInContext(`(${createDisposableStack.toString()})()`, loader.context);
+  return { loader, manager, rpc, manifest };
 }

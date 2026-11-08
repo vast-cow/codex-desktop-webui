@@ -9,20 +9,22 @@ import { Upstream, type RpcId } from './upstream.js';
 export function unsupported(operation: string): never { throw Error(`Host operation unavailable: ${operation}`); }
 
 /** Explicit Node services for the pinned manager, independent of browser leases. */
-export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string) {
+export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value) {
   const scheduler = new HostScheduler();
+  const startingThreads = new Set<string>();
+  const sendLocks = new Set<string>(), sentMessages = new Set<string>();
   const requestListeners = new Set<(event: any) => void>();
   const unreadListeners = new Set<(event: any) => void>();
   const unread = new Set<string>((state.readValue('unread-thread-ids') as string[] | undefined) ?? []);
-  const logger = Object.fromEntries(['trace', 'debug', 'info', 'warning', 'error'].map(level => [level, (message: string) => {
-    if (level === 'error' || level === 'warning') console.error(`[manager:${level}] ${message}`);
+  const logger = Object.fromEntries(['trace', 'debug', 'info', 'warning', 'error'].map(level => [level, (message: string, fields?: any) => {
+    if (level === 'error' || level === 'warning') console.error(`[manager:${level}] ${message}`, fields?.sensitive?.error?.message ?? '');
   }]));
   const persist = (key: string, value: unknown) => { void state.writeValue(key, value).catch(error => console.error('Host state write failed:', error.message)); };
   const transport = {
     hostId: upstream.hostId,
     // The handshake is not a semantic server version. Unknown versions disable
-    // version-gated features until the actual server supplies verified metadata.
-    getAppServerVersion: () => undefined,
+    // version-gated features until the operator supplies the target version.
+    getAppServerVersion: () => upstream.getSemanticVersion(),
     getCompatibleThreadSortKey: (key: string) => key === 'recency_at' ? 'updated_at' : key,
     supportsPaginatedThreadHistory: () => false,
     getPendingRequestCount: upstream.getPendingRequestCount.bind(upstream),
@@ -34,24 +36,25 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
   };
   const respond = (_method: string, response: { id: RpcId; result: unknown }) => upstream.respond(response.id, response.result);
   const storage = {
-    readValue: state.readValue.bind(state), writeValue: state.writeValue.bind(state),
-    readGlobalState: state.readGlobalState.bind(state), updateGlobalState: state.updateGlobalState.bind(state),
-    readQueuedFollowUps: () => ({ isLoading: false, value: state.readValue('queued-follow-ups') ?? {} }),
-    loadQueuedFollowUps: async () => state.readValue('queued-follow-ups') ?? {},
-    updateQueuedFollowUps: (update: (value: any) => unknown) => state.updateGlobalState('queued-follow-ups', value => update(value ?? {}))
+    readValue: (key: string) => normalize(state.readValue(key)), writeValue: state.writeValue.bind(state),
+    readGlobalState: async (key: string) => normalize(await state.readGlobalState(key)),
+    updateGlobalState: (key: string, update: (value: any) => unknown) => state.updateGlobalState(key, value => update(normalize(value))),
+    readQueuedFollowUps: () => normalize({ isLoading: false, value: state.readValue('queued-follow-ups') ?? {} }),
+    loadQueuedFollowUps: async () => normalize(state.readValue('queued-follow-ups') ?? {}),
+    updateQueuedFollowUps: (update: (value: any) => unknown) => state.updateGlobalState('queued-follow-ups', value => update(normalize(value ?? {})))
   };
   const savedReadState = {
     syncWithServer: false, isReady: () => true, has: (id: string) => unread.has(id),
     set(id: string, value: boolean) {
       if (value) unread.add(id); else unread.delete(id);
       persist('unread-thread-ids', [...unread]);
-      for (const listener of unreadListeners) listener({ threadId: id, hasUnreadTurn: value });
+      for (const listener of unreadListeners) listener(normalize({ threadId: id, hasUnreadTurn: value }));
     },
-    subscribe(listener: (event: any) => void) { unreadListeners.add(listener); listener({ unreadThreadIds: [...unread] }); return () => { unreadListeners.delete(listener); }; }
+    subscribe(listener: (event: any) => void) { unreadListeners.add(listener); listener(normalize({ unreadThreadIds: [...unread] })); return () => { unreadListeners.delete(listener); }; }
   };
   const filesystem = {
     attachments: { createId: randomUUID,
-      readFile: (path: string) => readFile(path),
+      readFile: async (path: string) => normalize(await readFile(path)),
       writeFile: (path: string, contents: string | Uint8Array) => writeFile(path, contents),
     },
     initialization: { hasDesktopRuntime: false,
@@ -66,7 +69,7 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     ensureDirectory: (path: string) => mkdir(path, { recursive: true }),
     createProjectlessThreadWorkspace: async () => {
       const path = resolve(dataDirectory, 'workspaces', randomUUID()); await mkdir(path, { recursive: true });
-      return { cwd: path, workspaceRoot: path };
+      return normalize({ cwd: path, workspaceRoot: path });
     },
   };
   const runtime = {
@@ -74,7 +77,19 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     threadMode: () => 'default', parseUrl: (input: string) => { try { return new URL(input); } catch { return null; } },
     createAbortController: () => new AbortController(), accountId: () => null,
     isUsingCopilotInference: async () => false,
-    queuedMessages: { requiresReplayAdmission: false, canAcquireOwnership: () => true },
+    queuedMessages: {
+      requiresReplayAdmission: false, automaticExecutionEnabled: true,
+      canAcquireOwnership: () => upstream.isReady,
+      isHostForConversation: (_id: string, hostId: string) => hostId === upstream.hostId,
+      tryAcquireStartTurn(id: string) { if (startingThreads.has(id)) return false; startingThreads.add(id); return true; },
+      releaseStartTurn(id: string) { startingThreads.delete(id); },
+      async acquireSendLock(id: string, messageId: string) {
+        const key = JSON.stringify([id, messageId]);
+        if (sendLocks.has(key) || sentMessages.has(key)) return null;
+        sendLocks.add(key);
+        return { async release(sent: boolean) { sendLocks.delete(key); if (sent) sentMessages.add(key); } };
+      }
+    },
   };
   const settings = {
     isBrowserRuntime: false,
@@ -83,12 +98,12 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     readExperimentPersonality: async () => null,
     readFollowUpQueueMode: () => 'queue', readPermissionRefreshEnabled: () => true,
     readDefaultFeatureOverrides: () => ({}),
-    readCodexConfig: async (cwd: string) => (await transport.sendRequest('config/read', { includeLayers: false, cwd })).config,
+    readCodexConfig: async (cwd: string) => normalize((await transport.sendRequest('config/read', { includeLayers: false, cwd })).config),
     fetchProxyConfig: async () => null,
     isTokenBudgetThread: (id: string) => state.readValue(`token-budget:${id}`) === true,
     readSettings: async (_model: string | null, cwd: string) => {
       const { config } = await transport.sendRequest('config/read', { includeLayers: false, cwd });
-      return { personality: config.personality ?? null, defaultFeatureOverrides: {}, instructionOverrides: null, writingBlocks: false, includeProseDetailLevelInstructions: false };
+      return normalize({ personality: config.personality ?? null, defaultFeatureOverrides: {}, instructionOverrides: null, writingBlocks: false, includeProseDetailLevelInstructions: false });
     },
   };
   return {
@@ -103,6 +118,6 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
       sendAppServerResponse: respond, sendApprovalResponse: respond,
       threadExecution: { executeDynamicToolCall: () => unsupported('desktop dynamic tools') },
     },
-    async dispose() { scheduler.dispose(); requestListeners.clear(); unreadListeners.clear(); await state.flush(); }
+    async dispose() { scheduler.dispose(); startingThreads.clear(); sendLocks.clear(); sentMessages.clear(); requestListeners.clear(); unreadListeners.clear(); await state.flush(); }
   };
 }

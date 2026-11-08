@@ -65,6 +65,8 @@ test('rejects incompatible initialization and incorrect upgrade paths', async t 
 });
 test('reports missing sockets and requires explicit configuration', async () => {
   assert.throws(() => new Upstream({ socketPath: '' }), /explicit absolute/);
+  assert.throws(() => new Upstream({ socketPath: '/tmp/x', serverVersion: 'unknown' }), /semantic version/);
+  assert.equal(new Upstream({ socketPath: '/tmp/x', serverVersion: '0.149.0-alpha.4.3' }).getSemanticVersion(), '0.149.0-alpha.4.3');
   assert.throws(() => new Upstream({ socketPath: '/tmp/x', upgradePath: '//remote' }), /upgrade path/);
   const client = new Upstream({ socketPath: '/nonexistent-webui-test/server.sock', timeoutMs: 500 });
   await assert.rejects(client.connect(), /ENOENT/); client.close();

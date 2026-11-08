@@ -11,8 +11,8 @@ export class SharedManager {
   error?: string;
   private requests = new Map<string, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   private constructor(readonly worker: Worker) {}
-  static async start(root: string, dataDirectory: string, upstream: UpstreamOptions) {
-    const worker = new Worker(resolve('dist/src/manager-worker.js'), { workerData: { root, dataDirectory, upstream }, execArgv: [] });
+  static async start(root: string, dataDirectory: string, upstream: UpstreamOptions, workspaceRoot = process.cwd()) {
+    const worker = new Worker(resolve('dist/src/manager-worker.js'), { workerData: { root, dataDirectory, upstream, workspaceRoot }, execArgv: [] });
     const manager = new SharedManager(worker);
     try {
       await new Promise<void>((resolve, reject) => {

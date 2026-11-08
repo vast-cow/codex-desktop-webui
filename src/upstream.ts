@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 import WebSocket from 'ws';
 
 export type RpcId = string | number;
-export interface UpstreamOptions { socketPath: string; upgradePath?: string; timeoutMs?: number }
+export interface UpstreamOptions { socketPath: string; upgradePath?: string; timeoutMs?: number; serverVersion?: string }
 export class DeliveryError extends Error {
   constructor(message: string, readonly outcome: 'not-sent' | 'unknown') { super(message); }
 }
@@ -25,12 +25,15 @@ export class Upstream extends EventEmitter {
   constructor(private options: UpstreamOptions) {
     super();
     if (!options.socketPath || !isAbsolute(options.socketPath)) throw Error('An explicit absolute upstream Unix socket path is required');
+    if (options.serverVersion !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(options.serverVersion)) throw Error('Invalid explicit app-server semantic version');
     this.path = options.upgradePath ?? '/rpc';
     if (!/^\/(?!\/)[^#\s]*$/.test(this.path)) throw Error('Invalid upstream upgrade path');
     this.timeoutMs = options.timeoutMs ?? 15000;
     if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) throw Error('Invalid upstream timeout');
   }
   getAppServerVersion() { return this.serverInfo; }
+  /** Operator-supplied target version; initialize.userAgent identifies a client, not a server version. */
+  getSemanticVersion() { return this.options.serverVersion; }
   getPendingRequestCount({ method }: { method?: string } = {}) { return [...this.pending.values()].filter(p => !method || p.method === method).length; }
   get isReady() { return this.ready; }
   connect(): Promise<unknown> {

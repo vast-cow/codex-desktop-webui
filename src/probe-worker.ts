@@ -26,9 +26,9 @@ function visit(id: string) {
   closure.add(id);
   for (const dependency of table.get(id)?.dependencies ?? []) visit(dependency);
 }
-visit('V7mA'); visit('Fkn8');
+visit('V7mA'); visit('Fkn8'); visit('waIq');
 const outcomes = [];
-for (const id of ['Fkn8', 'V7mA']) {
+for (const id of ['Fkn8', 'V7mA', 'waIq']) {
   const loader = new ModuleLoader(table);
   try {
     const exports = loader.require(id);

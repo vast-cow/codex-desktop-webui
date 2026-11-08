@@ -45,16 +45,32 @@ async function connect(page: Page, origin: string) {
 test('two browsers share vendor history, turns, streaming, approval arbitration, and reconnect', { timeout: 90000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'webui-feasibility-'));
   const fixture = await appServerFixture(join(directory, 'server.sock'), directory);
-  const manager = await SharedManager.start(resolve('.generated'), join(directory, 'state'), { socketPath: join(directory, 'server.sock') });
-  const server = await createAssetHost(resolve('.generated'));
-  const sockets = new WebSocketServer({ server, path: '/app-host' });
-  sockets.on('connection', socket => manager.attach(socket));
+  let manager: SharedManager | undefined;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let server: Awaited<ReturnType<typeof createAssetHost>> | undefined;
+  let sockets: WebSocketServer | undefined;
+  t.after(async () => {
+    await browser?.close();
+    for (const socket of sockets?.clients ?? []) socket.terminate(); sockets?.close();
+    if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()));
+    await manager?.close(); await fixture.close(); await rm(directory, { recursive: true, force: true });
+  });
+  manager = await SharedManager.start(resolve('.generated'), join(directory, 'state'), { socketPath: join(directory, 'server.sock') });
+  const connection = await manager.hostRequest({ type: 'request-app-server-state' });
+  assert.equal(connection.events[0].state, 'connected');
+  assert.equal(connection.events[1].appServerVersion, null);
+  await Promise.all(['first', 'second'].map(key => manager!.hostRequest({ type: 'persisted-atom-update', key: 'drafts', recordUpdate: { entries: { [key]: { value: key } } } })));
+  await manager.hostRequest({ type: 'persisted-atom-update', key: 'drafts', recordUpdate: { entries: { first: { delete: true, expectedValue: 'stale' } } } });
+  const persisted = await manager.hostRequest({ type: 'persisted-atom-sync-request' });
+  assert.deepEqual(persisted.events[0].state.drafts, { first: 'first', second: 'second' });
+  server = await createAssetHost(resolve('.generated'));
+  sockets = new WebSocketServer({ server, path: '/app-host' });
+  sockets.on('connection', socket => manager!.attach(socket));
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
   // Chromium treats Playwright-fulfilled test documents as public-network pages.
   // Disable that test-only classification; production documents come from HTTP.
-  const browser = await chromium.launch({ args: ['--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksWebSockets'] });
-  t.after(async () => { await browser.close(); for (const socket of sockets.clients) socket.terminate(); sockets.close(); await new Promise<void>(resolve => server.close(() => resolve())); await manager.close(); await fixture.close(); await rm(directory, { recursive: true, force: true }); });
+  browser = await chromium.launch({ args: ['--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksWebSockets'] });
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const first = await firstContext.newPage(), second = await secondContext.newPage();
@@ -93,5 +109,5 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
   await mkdir('.generated', { recursive: true });
   await writeFile('.generated/feasibility.json', JSON.stringify({ proofGate: 'not-passed', fixtureWorkflow: 'passed',
-    liveServer: 'not-tested', originalRendererWorkflow: 'not-passed', checks: ['two browser contexts', 'one upstream', 'nonempty history', 'vendor turn submission', 'streaming', 'first approval wins', 'browser reconnect'] }, null, 2) + '\n');
+    liveServer: 'not-tested', originalRendererWorkflow: 'see renderer-feasibility.json', checks: ['two browser contexts', 'one upstream', 'nonempty history', 'vendor turn submission', 'streaming', 'first approval wins', 'browser reconnect'] }, null, 2) + '\n');
 });

@@ -1,6 +1,6 @@
 # Observed host contracts
 
-These observations come from the pinned packaged modules, not an asserted complete implementation contract. Module import and central-manager execution have been exercised; the original renderer workflow remains unverified.
+These observations come from the pinned packaged modules, not an asserted complete implementation contract. Module import and central-manager execution have been exercised; the original renderer workflow also passes against a temporary protocol fixture; live-server compatibility remains unverified.
 
 ## Central manager
 
@@ -97,7 +97,7 @@ queued callbacks after host disposal. Scheduling new work after disposal throws,
 as with timer scheduling. Microtasks do not return individual cancellation handles
 in the observed vendor contract. Tests exercise ordering before timers, nested
 scheduling, and disposal from an earlier queued callback. This closes one adapter
-gap; manager instantiation and the two-browser gate remain unverified.
+gap; manager instantiation and two-browser fixture tests now pass, while the live gate remains unverified.
 
 The constructor inventory also records `storedServicePaths`: syntactic member
 paths rooted at `this.<constructor-service>` within the manager class. This
@@ -118,7 +118,7 @@ Each browser's `connect-app-host` port gets an independent root service and
 registry/account capabilities. Subscription leases dispose retained callbacks,
 while the manager remains host-owned. Account reads use the upstream server.
 The initialize result is not treated as a semantic server version: version-gated
-features stay disabled until verified server-version metadata is available.
+features stay disabled when no version is configured. `CODEX_SERVER_VERSION` is an explicit operator assertion about the configured target, never a version inferred from client metadata.
 
 The WebSocket carries a tagged JSON representation of Cap'n Web's structured
 frames, preserving `undefined`, bytes, big integers, and nonfinite numbers. On
@@ -131,3 +131,20 @@ subscriptions, `applicationState`, `appInfo`, `startup`, and the default executi
 host. Persistent thread workspace associations and unread state use the WebUI
 store. Desktop dynamic tools and deferred archive operations fail explicitly.
 The facade is incomplete for other renderer services.
+
+### Runtime services exercised by the original renderer
+
+The browser bridge supplies `initial-route` metadata from the browser URL before
+the renderer imports its route module. The legacy `request-app-server-state`
+response reports the worker's real connection state and its explicitly configured
+semantic version. `workspaceRoots.read()` returns the validated host workspace;
+`executionPaths` returns host home paths, and `startup.reach()` records milestones.
+Optional automatic input resolution is represented as disabled with no optional
+activity methods, so the renderer does not attempt automatic decisions.
+
+The worker's disposal-stack adapter uses the VM's disposal symbol and prototypes.
+Persistent-record edits reuse `waIq.m`, including expected-value checks, merging
+independent edits instead of overwriting whole draft maps. Queue execution uses
+independent per-thread start locks and per-message send locks. Accepted message
+IDs are retained for the worker lifetime; durable transport-level deduplication
+across process restarts remains outside this milestone.

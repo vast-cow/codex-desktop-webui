@@ -1,5 +1,8 @@
 import { parentPort, workerData, type MessagePort } from 'node:worker_threads';
 import vm from 'node:vm';
+import { stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { loadVendorRuntime } from './vendor-runtime.js';
 import { managerAdapters } from './manager-adapters.js';
 import { HostState } from './host-state.js';
@@ -7,10 +10,11 @@ import { Upstream } from './upstream.js';
 import { rendererServices } from './renderer-services.js';
 
 const { root, dataDirectory, upstream: upstreamOptions } = workerData;
+const workspaceRoot = resolve(workerData.workspaceRoot);
+if (!(await stat(workspaceRoot)).isDirectory()) throw Error('Configured workspace root is not a directory');
 const vendor = await loadVendorRuntime(root);
 const state = await HostState.open(dataDirectory);
 const upstream = new Upstream(upstreamOptions);
-const adapters = managerAdapters(state, upstream, dataDirectory);
 // Cross-realm records must be ordinary objects in the vendor VM, including RPC results.
 const clone = vm.runInContext(`(function clone(value) {
   if (value === null || typeof value !== 'object') return value;
@@ -19,6 +23,7 @@ const clone = vm.runInContext(`(function clone(value) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clone(item)]));
 })`, vendor.loader.context);
 const vmError = vm.runInContext('(message) => new Error(message)', vendor.loader.context);
+const adapters = managerAdapters(state, upstream, dataDirectory, clone);
 const sendRequest = adapters.options.transport.sendRequest;
 adapters.options.transport.sendRequest = async (...args) => {
   try { return clone(await sendRequest(...args)); }
@@ -42,18 +47,27 @@ parentPort!.on('message', async message => {
       try {
         const request = message.message;
         let events: unknown[];
-        if (request.type === 'persisted-atom-sync-request') events = [{ type: 'persisted-atom-sync', state: state.readValue('persisted-atoms') ?? {}, canWritePrimaryWindowTabPersistence: true }];
+        if (request.type === 'request-app-server-state') events = [
+          { type: 'codex-app-server-connection-changed', hostId: upstream.hostId, state: upstream.isReady ? 'connected' : 'disconnected' },
+          ...(upstream.isReady ? [{ type: 'codex-app-server-initialized', hostId: upstream.hostId, appServerVersion: upstream.getSemanticVersion() ?? null }] : [])
+        ];
+        else if (request.type === 'persisted-atom-sync-request') events = [{ type: 'persisted-atom-sync', state: state.readValue('persisted-atoms') ?? {}, canWritePrimaryWindowTabPersistence: true }];
         else if (request.type === 'persisted-atom-update') {
-          if (request.recordUpdate != null) throw Error('Structured persisted-atom updates are unavailable');
-          await state.updateGlobalState('persisted-atoms', value => { const next = { ...value }; if (request.deleted) delete next[request.key]; else Object.defineProperty(next, request.key, { value: request.value, enumerable: true, configurable: true, writable: true }); return next; });
-          events = [{ type: 'persisted-atom-updated', key: request.key, value: request.value, deleted: request.deleted }];
+          await state.updateGlobalState('persisted-atoms', value => { const next = { ...value }; if (request.recordUpdate != null) {
+            const base = next[request.key] ?? next[request.recordUpdate.legacyStorageKey];
+            Object.defineProperty(next, request.key, { value: vendor.loader.require('waIq').m(clone(base), clone(request.recordUpdate)), enumerable: true, configurable: true, writable: true });
+          } else if (request.deleted) delete next[request.key]; else Object.defineProperty(next, request.key, { value: request.value, enumerable: true, configurable: true, writable: true }); return next; });
+          events = [{ type: 'persisted-atom-updated', key: request.key, value: (state.readValue('persisted-atoms') as any)?.[request.key], deleted: request.deleted }];
         } else throw Error(`Unsupported native message: ${request.type}`);
         parentPort!.postMessage({ type: 'host-response', id: message.id, result: { events } });
       } catch (error: any) { parentPort!.postMessage({ type: 'host-response', id: message.id, error: error.message }); }
     } else if (message.type === 'attach') {
       const services = factory({ RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
-        appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform }),
+        appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform, arch: process.arch }),
         host: async (method: string, key: string, value: unknown) => {
+          if (method === 'workspaceRoots') return clone({ roots: [workspaceRoot], labels: {} });
+          if (method === 'homePaths') return clone({ codexHome: resolve(homedir(), '.codex'), workspacesRoot: resolve(dataDirectory, 'workspaces') });
+          if (method === 'homeDirectory') return homedir();
           if (method === 'read') return clone(state.readValue(key));
           if (method === 'write') { await state.writeValue(key, value); return; }
           throw Error(`Unsupported state method: ${method}`);

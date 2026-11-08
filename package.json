@@ -13,7 +13,7 @@
     "test": "tsx --test test/*.test.ts",
     "assets:check": "tsx src/check-assets.ts",
     "upstream:check": "tsx src/check-upstream.ts",
-    "dev": "tsx src/serve.ts",
+    "dev": "npm run build --silent && tsx src/serve.ts",
     "start": "node dist/src/serve.js",
     "test:feasibility": "npm run build --silent && node --test dist/test/feasibility/*.test.js"
   },

@@ -26,7 +26,7 @@ await writeFile(resolve(output, 'standalone.html'), standalone);
 await copyFile(resolve('dist/src/browser-bridge.js'), resolve(output, 'bridge.js'));
 await copyFile(resolve('dist/src/wire.js'), resolve(output, 'wire.js'));
 const manifest = { schemaVersion: 1, archiveSha256: await hashFile(archivePath), applicationVersion: packageInfo.version,
-  modules: { manager: { id: 'V7mA', export: 'O3' }, rpc: { id: 'Fkn8' } }, files,
+  modules: { manager: { id: 'V7mA', export: 'O3' }, rpc: { id: 'Fkn8' }, persistedRecord: { id: 'waIq', export: 'm' } }, files,
   generatedFiles: { 'wire.js': sha256(await readFile(resolve(output, 'wire.js'))), 'standalone.html': sha256(standalone), 'bridge.js': sha256(await readFile(resolve(output, 'bridge.js'))),
     'THIRD_PARTY_NOTICES.txt': sha256(await readFile(resolve(output, 'THIRD_PARTY_NOTICES.txt'))) },
   patches: [], entry: { originalSha256: files['webview/index.html'], generatedSha256: sha256(standalone) } };
