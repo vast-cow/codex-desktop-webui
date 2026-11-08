@@ -13,3 +13,17 @@ test('rejects changed export and constructor shapes instead of silently guessing
   assert.throws(() => managerContract('function(){}'), /Cannot locate/);
   assert.throws(() => managerContract('function(m,e,r){r.d(e,{O3:()=>M});class M{constructor({x}){}}}'), /Unsupported/);
 });
+
+test('inventories stored service members in methods without running the constructor', () => {
+  const contract = managerContract(`function(m,e,r){r.d(e,{O3:()=>Manager});
+    class Other { run(){this.scheduler.unrelated()} }
+    class Manager {
+      constructor(options){const {scheduler,settings}=options; throw Error('not executed');}
+      start(){this.scheduler.scheduleMicrotask(()=>{});this.scheduler['schedule'](()=>{});
+        this.settings.history.useTailHydration;this.scheduler[unknown]();}
+    }}`);
+  assert.deepEqual(contract.storedServicePaths, {
+    scheduler: ['schedule', 'scheduleMicrotask'],
+    settings: ['history', 'history.useTailHydration']
+  });
+});

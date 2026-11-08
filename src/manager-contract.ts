@@ -12,8 +12,12 @@ export function managerContract(source: string, exportName = 'O3') {
   }});
   if (!className) throw Error(`Cannot locate manager export ${exportName}`);
   let constructor: any;
+  let manager: any;
   simple(ast, { ClassDeclaration(node: any) {
-    if (node.id.name === className) constructor = node.body.body.find((member: any) => member.kind === 'constructor')?.value;
+    if (node.id.name === className) {
+      manager = node;
+      constructor = node.body.body.find((member: any) => member.kind === 'constructor')?.value;
+    }
   }});
   if (!constructor || constructor.params[0]?.type !== 'Identifier') throw Error('Unsupported manager constructor');
   const parameter = constructor.params[0].name;
@@ -26,5 +30,24 @@ export function managerContract(source: string, exportName = 'O3') {
     }
   }});
   if (!services.length) throw Error('No manager services found');
-  return { exportName, className, services };
+  // Inventory direct stored-service paths only. Helpers and aliases need separate
+  // tracing; this deliberately makes no claim to a complete runtime contract.
+  const paths = new Map(services.map(service => [service.name, new Set<string>()]));
+  simple(manager, { MemberExpression(node: any) {
+    const parts: string[] = [];
+    let current = node;
+    while (current.type === 'MemberExpression') {
+      const key = current.computed ? current.property.value : current.property.name;
+      if (typeof key !== 'string') return;
+      parts.unshift(key);
+      current = current.object;
+    }
+    if (current.type === 'ThisExpression' && parts.length > 1) {
+      paths.get(parts[0])?.add(parts.slice(1).join('.'));
+    }
+  }});
+  const storedServicePaths = Object.fromEntries([...paths]
+    .filter(([, members]) => members.size)
+    .map(([name, members]) => [name, [...members].sort()]));
+  return { exportName, className, services, storedServicePaths };
 }

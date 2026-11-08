@@ -82,3 +82,27 @@ failed writes, and corrupt state.
 convention and returns an idempotent cancellation function. Host disposal cancels
 all pending callbacks. It deliberately omits browser animation-frame methods so
 the manager uses its observed timer fallback.
+
+### Microtask scheduling
+
+The pinned `V7mA.O3` constructor also passes
+`this.scheduler.scheduleMicrotask` unbound into the passive-thread unsubscriber
+(`nT`). That helper schedules inactive-thread release after thread notifications,
+stream-role changes, and history hydration. Its original adapter calls
+`queueMicrotask(callback)`; a timer alone does not satisfy this contract.
+
+`HostScheduler.scheduleMicrotask` now supplies that operation without a DOM.
+It preserves microtask ordering, supports use as an unbound callback, and ignores
+queued callbacks after host disposal. Scheduling new work after disposal throws,
+as with timer scheduling. Microtasks do not return individual cancellation handles
+in the observed vendor contract. Tests exercise ordering before timers, nested
+scheduling, and disposal from an earlier queued callback. This closes one adapter
+gap; manager instantiation and the two-browser gate remain unverified.
+
+The constructor inventory also records `storedServicePaths`: syntactic member
+paths rooted at `this.<constructor-service>` within the manager class. This
+includes references in methods, such as `scheduler.scheduleMicrotask`, which the
+constructor binding list alone misses. Computed nonliteral members are excluded.
+These are source references, not verified callable signatures or requiredness:
+helper functions, renamed fields, aliases, and runtime-selected members still
+require separate tracing before writing adapters.
