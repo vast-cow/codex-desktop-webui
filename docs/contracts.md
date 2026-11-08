@@ -46,7 +46,9 @@ execution or satisfaction of the two-browser proof gate.
 ## Upstream transport probe
 
 Run `CODEX_SOCKET_PATH=/absolute/path/to/server.sock npm run upstream:check`.
-Set `CODEX_UPGRADE_PATH` if the upgrade path differs from `/rpc`. The probe
+Alternatively, use `CODEX_SERVER_URL=ws://127.0.0.1:4500/ npm run upstream:check`
+for TCP; see [connection settings](network.md#existing-app-server).
+Set `CODEX_UPGRADE_PATH` for Unix sockets if the upgrade path differs from `/rpc`. The probe
 initializes one connection, reads the actual account state, reports only the
 account type, and disconnects. It never starts, stops, or configures a server.
 The [official lifecycle](https://learn.chatgpt.com/docs/app-server) specifies

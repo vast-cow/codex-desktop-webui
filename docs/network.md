@@ -28,7 +28,20 @@ receive an HTML fallback. Browser Cap'n Web RPC uses the same origin at `/app-ho
 
 # Existing app server
 
-Set an explicit `CODEX_SOCKET_PATH` and optionally `CODEX_UPGRADE_PATH` (default
+For TCP, set `CODEX_SERVER_URL` to the full WebSocket URL, including the
+server's upgrade path (for example `ws://127.0.0.1:4500/` or
+`wss://example.com/rpc`). Both the host and probe accept this setting:
+
+```sh
+CODEX_SERVER_URL=ws://127.0.0.1:4500/ npm run upstream:check
+CODEX_SERVER_URL=ws://127.0.0.1:4500/ npm run dev
+```
+
+Choose exactly one of `CODEX_SERVER_URL` and `CODEX_SOCKET_PATH`.
+With a URL, include the path and query in the URL and leave
+`CODEX_UPGRADE_PATH` unset. URLs with credentials or fragments are rejected.
+
+For Unix sockets, set an explicit `CODEX_SOCKET_PATH` and optionally `CODEX_UPGRADE_PATH` (default
 `/rpc`), then run `npm run upstream:check`. The probe initializes a connection and
 reads account state without submitting a turn. It prints only the account type,
 not account identity or credentials. No server is discovered, spawned, restarted,

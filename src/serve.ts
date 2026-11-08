@@ -8,10 +8,10 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) throw Error('PORT must 
 const host = process.env.HOST ?? '0.0.0.0';
 const server = await createAssetHost(resolve('.generated'));
 let manager: SharedManager | undefined;
-let startupError = 'CODEX_SOCKET_PATH is required to connect the shared manager';
-if (process.env.CODEX_SOCKET_PATH) {
+let startupError = 'CODEX_SOCKET_PATH or CODEX_SERVER_URL is required to connect the shared manager';
+if (process.env.CODEX_SOCKET_PATH || process.env.CODEX_SERVER_URL) {
   try { manager = await SharedManager.start(resolve('.generated'), resolve(process.env.WEBUI_DATA_DIR ?? resolve(homedir(), '.local/share/standalone-codex-webui')), {
-    socketPath: process.env.CODEX_SOCKET_PATH, upgradePath: process.env.CODEX_UPGRADE_PATH ?? '/rpc', serverVersion: process.env.CODEX_SERVER_VERSION
+    socketPath: process.env.CODEX_SOCKET_PATH, serverUrl: process.env.CODEX_SERVER_URL, upgradePath: process.env.CODEX_UPGRADE_PATH, serverVersion: process.env.CODEX_SERVER_VERSION
   }, resolve(process.env.CODEX_WORKSPACE_ROOT ?? process.cwd())); } catch (error: any) { startupError = error.message; console.error('Shared manager startup failed:', startupError); }
 }
 const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });

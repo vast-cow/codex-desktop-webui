@@ -8,7 +8,7 @@ import { once } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Upstream, DeliveryError } from '../src/upstream.js';
 
-async function fixture(t: any, initialize: unknown = { userAgent: 'test/1' }) {
+async function fixture(t: any, initialize: unknown = { userAgent: 'test/1' }, tcp = false) {
   const root = await mkdtemp(join(tmpdir(), 'webui-rpc-'));
   const socketPath = join(root, 'server.sock');
   const server = createServer();
@@ -23,8 +23,12 @@ async function fixture(t: any, initialize: unknown = { userAgent: 'test/1' }) {
       if (frame.method === 'echo') socket.send(JSON.stringify({ id: frame.id, result: frame.params }));
     });
   });
-  server.listen(socketPath); await once(server, 'listening');
-  const client = new Upstream({ socketPath, timeoutMs: 500 });
+  if (tcp) server.listen(0, '127.0.0.1'); else server.listen(socketPath);
+  await once(server, 'listening');
+  const address = server.address();
+  const client = new Upstream(tcp
+    ? { serverUrl: `ws://127.0.0.1:${(address as import('node:net').AddressInfo).port}/rpc`, timeoutMs: 500 }
+    : { socketPath, timeoutMs: 500 });
   t.after(async () => { client.close(); for (const peer of wss.clients) peer.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); });
   return { client, socketPath, frames, peer: () => peer! };
 }
@@ -76,4 +80,30 @@ test('malformed frames fail pending requests instead of hanging', async t => {
   const pending = client.sendRequest('turn/start');
   const rejected = assert.rejects(pending, /Invalid upstream RPC envelope/);
   peer().send('[]'); await rejected;
+});
+
+test('TCP WebSocket initializes, handles RPC and approvals, and reconnects', async t => {
+  const { client, frames, peer } = await fixture(t, undefined, true);
+  await Promise.all([client.connect(), client.connect()]);
+  assert.deepEqual(await client.sendRequest('echo', { tcp: true }), { tcp: true });
+  assert.equal(frames.filter(f => f.method === 'initialize').length, 1);
+  const request = once(client, 'request');
+  peer().send(JSON.stringify({ id: 'tcp-approval', method: 'approval', params: {} }));
+  await request;
+  assert.equal(client.respond('tcp-approval', { decision: 'accept' }), true);
+  await client.sendRequest('echo', null);
+  assert.equal(frames.filter(f => f.id === 'tcp-approval').length, 1);
+  const disconnected = once(client, 'disconnected');
+  peer().terminate(); await disconnected;
+  assert.equal(client.isReady, false);
+  await client.connect();
+  assert.equal(await client.sendRequest('echo', 'reconnected'), 'reconnected');
+});
+test('validates explicit TCP configuration', () => {
+  for (const serverUrl of ['', 'http://localhost:4500', 'tcp://localhost:4500', 'ws://user:secret@localhost/', 'ws://localhost/#fragment']) {
+    assert.throws(() => new Upstream({ serverUrl }), /WebSocket URL/);
+  }
+  assert.throws(() => new Upstream({ serverUrl: 'ws://localhost:4500/', socketPath: '/tmp/x' }), /only one/);
+  assert.throws(() => new Upstream({ serverUrl: 'ws://localhost:4500/', upgradePath: '/rpc' }), /upgrade path/);
+  assert.doesNotThrow(() => new Upstream({ serverUrl: 'wss://example.com/rpc?test=1' }));
 });

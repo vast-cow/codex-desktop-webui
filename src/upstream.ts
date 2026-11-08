@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 import WebSocket from 'ws';
 
 export type RpcId = string | number;
-export interface UpstreamOptions { socketPath: string; upgradePath?: string; timeoutMs?: number; serverVersion?: string }
+export interface UpstreamOptions { socketPath?: string; serverUrl?: string; upgradePath?: string; timeoutMs?: number; serverVersion?: string }
 export class DeliveryError extends Error {
   constructor(message: string, readonly outcome: 'not-sent' | 'unknown') { super(message); }
 }
@@ -24,7 +24,13 @@ export class Upstream extends EventEmitter {
   private readonly path: string;
   constructor(private options: UpstreamOptions) {
     super();
-    if (!options.socketPath || !isAbsolute(options.socketPath)) throw Error('An explicit absolute upstream Unix socket path is required');
+    if (options.serverUrl !== undefined) {
+      if (options.socketPath !== undefined) throw Error('Configure only one of socketPath or serverUrl');
+      let url: URL;
+      try { url = new URL(options.serverUrl); } catch { throw Error('Invalid upstream WebSocket URL'); }
+      if (!['ws:', 'wss:'].includes(url.protocol) || !url.hostname || url.username || url.password || options.serverUrl.includes('#')) throw Error('Invalid upstream WebSocket URL');
+      if (options.upgradePath !== undefined) throw Error('Set the upgrade path in serverUrl when using TCP');
+    } else if (!options.socketPath || !isAbsolute(options.socketPath)) throw Error('An explicit absolute upstream Unix socket path is required');
     if (options.serverVersion !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(options.serverVersion)) throw Error('Invalid explicit app-server semantic version');
     this.path = options.upgradePath ?? '/rpc';
     if (!/^\/(?!\/)[^#\s]*$/.test(this.path)) throw Error('Invalid upstream upgrade path');
@@ -43,8 +49,8 @@ export class Upstream extends EventEmitter {
     return this.opening;
   }
   private async open() {
-    const socket = new WebSocket(`ws://localhost${this.path}`, {
-      createConnection: () => createConnection({ path: this.options.socketPath }),
+    const socket = new WebSocket(this.options.serverUrl ?? `ws://localhost${this.path}`, {
+      ...(this.options.serverUrl === undefined ? { createConnection: () => createConnection({ path: this.options.socketPath! }) } : {}),
       handshakeTimeout: this.timeoutMs, maxPayload: 16 * 1024 * 1024,
     });
     this.socket = socket;

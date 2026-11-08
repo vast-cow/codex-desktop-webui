@@ -2,12 +2,14 @@ import { Upstream } from './upstream.js';
 
 // Inspect only the explicitly configured server. Never discover or manage it.
 const socketPath = process.env.CODEX_SOCKET_PATH;
-if (!socketPath) {
-  console.error('Set CODEX_SOCKET_PATH to the existing app server Unix socket. No server was contacted.');
+const serverUrl = process.env.CODEX_SERVER_URL;
+if (!socketPath && !serverUrl) {
+  console.error('Set CODEX_SOCKET_PATH or CODEX_SERVER_URL to the existing app server. No server was contacted.');
   process.exitCode = 1;
 } else {
-  const upstream = new Upstream({ socketPath, upgradePath: process.env.CODEX_UPGRADE_PATH });
+  let upstream: Upstream | undefined;
   try {
+    upstream = new Upstream({ socketPath, serverUrl, upgradePath: process.env.CODEX_UPGRADE_PATH });
     await upstream.connect();
     const account = await upstream.sendRequest('account/read', { refreshToken: false });
     if (!account || typeof account !== 'object' || !('account' in account)) throw Error('Incompatible account/read response');
@@ -16,5 +18,5 @@ if (!socketPath) {
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  } finally { upstream.close(); }
+  } finally { upstream?.close(); }
 }
