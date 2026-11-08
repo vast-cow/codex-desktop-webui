@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "applicationVersion": "26.1103.32239",
+  "archiveSha256": "63106325f6c5fb668e57323ece7c1b29d617877132096e9b856e7606b10c68fe",
+  "proofGate": "not-passed",
+  "modules": {
+    "manager": {
+      "id": "V7mA",
+      "export": "O3",
+      "chunk": "async/182735.d3d917f28d.js"
+    },
+    "rpc": {
+      "id": "Fkn8",
+      "chunk": "async/398566.8e977c1734.js"
+    }
+  },
+  "chunks": {
+    "async/99339.2a3f26df03.js": "e38f3ffc326f7c78782c780718c9fa9ce210e93f99938b056d7654bb16dca187",
+    "async/360119.0a87a41e34.js": "8b311ce50508d890aff97d832ceae3feb4ce05a69d9d3095e193bdba1138d09a",
+    "async/182735.d3d917f28d.js": "11870f9f8005c5fce0e422bb6aad4840478b1110fe8086a97e7020afc64ce830",
+    "async/760507.0d634a5b8f.js": "ae846c62c514b0e9566c834f2b1a258d08b2adf9e5c835a2b58b6b67cad6925c",
+    "158624.0baba19172.js": "f6638b4beb2a6dda7885a02f98a34ff9eba8b2712c94128cece9ecf40f6a1f7e",
+    "async/23568.d16db37dce.js": "af174cb07f6370760aa7a2a746de2f5915e61a24a2adede0de51fc13519c08f2",
+    "async/972499.b9f8eb2bc4.js": "cf2fa4d96dbc7c9b09036d9f43e67c62d25645068a6c253fcd0aab54e3373fdf",
+    "async/925171.229123e44d.js": "67fc0f828d294d90d12ea5a2c2295cafe68947f719c27fa155d2f61e4742989a",
+    "104974.7457f6db47.js": "7a931ad15886506b699b164ba2b300fa3dd4bf236f910c5d854fa06d75ffc676",
+    "async/242607.49e4372259.js": "fb4d10b0643cbbc0779434afaff6f2da0a0014e0fdf1a7c1cd2b1012529297e9",
+    "async/285675.7d41f1e37c.js": "897760523671463b0671f13e2f05d55aa793b4200da5519fd081a118ef1d164d",
+    "async/189497.6182e00931.js": "4dddc9cc820c91ba0424caee996047b11c182bbe16c008054b85648eb4afdc78",
+    "async/398566.8e977c1734.js": "52dd500f32dde293eef5dd1812f0c39c8f7b9b1cbd9d11f5980c79d1dd060917",
+    "async/84355.c7cdd8ffde.js": "2efd6c8d389eb09e54789b79b10fc0283e6624070ba6d14e298a30e74f0cfcff",
+    "146976.9b22bf1d71.js": "b24f119990a1813b6adbabca47af03a154d566b431935acffd06d242a829ac08",
+    "async/11951.da263ae686.js": "0a50111e1e44d993ce15725bbecddc05452659228d5fd1f72e82e0f36e002ff3",
+    "782259.7a3e865ee5.js": "5b9221f52d1eea38d1389b1e530c6067a4ca72d86632b4b19247ad6990e37c23",
+    "async/611635.a0949e2435.js": "b71d9d636d522255c8b0485ac32912a3fb98289fe7bb9af44a7ae6955acc4f2e",
+    "async/266593.d20eb730b6.js": "470b6fac87085736a35b17bbb8550ec7072ea4262ca6144de04766292dedb424"
+  },
+  "candidate": {
+    "id": "cxUs",
+    "purpose": "Replace DOM-backed named HTML entity decoder in worker only",
+    "chunk": "async/23568.d16db37dce.js",
+    "expectedFactorySha256": "faaca23403fc7535ba62790c00f5c132c4db9208512a37b8876965f574905cd7",
+    "replacementFactorySha256": "f0070a8217c8d08fd9654861df38a55fc7333de70295ebfbb6ccdd0d89b8055b",
+    "status": "import-only experiment; not validated for workflows"
+  }
+}

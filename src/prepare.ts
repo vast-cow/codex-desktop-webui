@@ -1,0 +1,31 @@
+import { mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { Archive, hashFile, sha256 } from './asar.js';
+
+const archivePath = resolve(process.argv[2] ?? 'chatgpt/usr/lib/chatgpt/resources/app.asar');
+const output = resolve('.generated');
+const archive = await Archive.open(archivePath);
+await mkdir(output, { recursive: true });
+await rm(resolve(output, 'module-index.json'), { force: true });
+const packageInfo = JSON.parse((await archive.read('package.json')).toString());
+const entries = archive.entries().filter(path => path.startsWith('webview/'));
+const files: Record<string, string> = {};
+for (const path of entries) {
+  const data = await archive.read(path);
+  files[path] = sha256(data);
+  const target = resolve(output, path);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, data);
+}
+await copyFile(resolve(dirname(archivePath), 'THIRD_PARTY_NOTICES.txt'), resolve(output, 'THIRD_PARTY_NOTICES.txt'));
+const html = (await readFile(resolve(output, 'webview/index.html'))).toString();
+// Only the separate entry is adapted; extracted vendor files remain byte-identical.
+const standalone = html.replace(/<meta http-equiv="Content-Security-Policy"[\s\S]*?>/i, '')
+  .replace('<head>', `<head>\n<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:">\n<script src="/bridge.js"></script>`);
+await writeFile(resolve(output, 'standalone.html'), standalone);
+await copyFile(resolve('dist/src/browser-bridge.js'), resolve(output, 'bridge.js'));
+const manifest = { schemaVersion: 1, archiveSha256: await hashFile(archivePath), applicationVersion: packageInfo.version,
+  modules: { manager: { id: 'V7mA', export: 'O3' }, rpc: { id: 'Fkn8' } }, files,
+  patches: [], entry: { originalSha256: files['webview/index.html'], generatedSha256: sha256(standalone) } };
+await writeFile(resolve(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+console.log(`Prepared ${entries.length} unchanged renderer assets for ${packageInfo.version}.`);

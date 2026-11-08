@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.generated/
+# Original input packages and extracted desktop distribution
+chatgpt/
+*.deb
+*.msix
+*.zip
+data.tar

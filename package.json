@@ -1,0 +1,26 @@
+{
+  "name": "standalone-codex-webui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "assets:prepare": "npm run build --silent && tsx src/prepare.ts",
+    "compat:check": "npm run build --silent && tsx src/probe.ts",
+    "build": "tsc",
+    "test": "tsx --test test/*.test.ts",
+    "assets:check": "tsx src/check-assets.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "acorn": "^8.15.0",
+    "acorn-walk": "^8.3.4",
+    "entities": "^9.0.0"
+  }
+}
