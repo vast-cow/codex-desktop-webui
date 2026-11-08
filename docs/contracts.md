@@ -25,7 +25,7 @@ Module `Wbxh` requires `appServices.applicationState`, including `read(key)` ret
 
 ## Upstream and application boundaries
 
-The intended transport is a Node WebSocket client connected through AF_UNIX with ordinary JSON frames. Its socket path must be explicit; `/rpc` is the proposed upgrade-path default. No transport implementation is included yet, and no existing server process or configuration has been changed.
+The intended transport is a Node WebSocket client connected through AF_UNIX with ordinary JSON frames. Its socket path must be explicit; `/rpc` is the proposed upgrade-path default. The original AF_UNIX transport is implemented in `src/upstream.ts` and fixture-tested. It is not yet connected to the vendor manager. No existing server process or configuration has been changed.
 
 The future host must keep credentials server-side and WebUI state separate from desktop state. Browser clients share the configured account and host workspace access, with no WebUI authentication. The intended listener is `0.0.0.0:3000`; browser URLs must stay relative to their origin. ChatGPT chat, Pages, and other unrelated cloud products must remain outside the implemented surface. The diagnostic entry's CSP permits only the serving origin for connections.
 
@@ -42,3 +42,20 @@ The scanner rejects missing exports, unsupported constructor signatures, and
 missing bindings. Tests verify inert inspection and rejection of changed shapes.
 This inventory guides adapter implementation; it does not constitute constructor
 execution or satisfaction of the two-browser proof gate.
+
+## Upstream transport probe
+
+Run `CODEX_SOCKET_PATH=/absolute/path/to/server.sock npm run upstream:check`.
+Set `CODEX_UPGRADE_PATH` if the upgrade path differs from `/rpc`. The probe
+initializes one connection, reads the actual account state, reports only the
+account type, and disconnects. It never starts, stops, or configures a server.
+The [official lifecycle](https://learn.chatgpt.com/docs/app-server) specifies
+`initialize` followed by `initialized`; real-server compatibility remains unverified.
+
+Transport fixtures exercise a real WebSocket upgrade over a temporary Unix socket.
+They cover concurrent request correlation, first-response approval arbitration,
+missing sockets, wrong paths, incompatible initialization, malformed frames, and
+reconnection without replaying sent mutations. Sent requests rejected by a disconnect
+or timeout have an `unknown` outcome; requests rejected before sending have a
+`not-sent` outcome. Reconnection is explicit and repeats initialization. This layer
+does not yet provide state reconciliation, browser facades, or durable deduplication.

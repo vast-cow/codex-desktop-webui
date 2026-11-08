@@ -11,16 +11,19 @@
     "compat:check": "npm run build --silent && tsx src/probe.ts",
     "build": "tsc",
     "test": "tsx --test test/*.test.ts",
-    "assets:check": "tsx src/check-assets.ts"
+    "assets:check": "tsx src/check-assets.ts",
+    "upstream:check": "tsx src/check-upstream.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   },
   "dependencies": {
     "acorn": "^8.15.0",
     "acorn-walk": "^8.3.4",
-    "entities": "^9.0.0"
+    "entities": "^9.0.0",
+    "ws": "^8.22.1"
   }
 }

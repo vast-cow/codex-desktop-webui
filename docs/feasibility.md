@@ -1,6 +1,6 @@
 # Feasibility status
 
-The first milestone remains incomplete. No later milestone is implemented. The CLI harness is runnable, but there is no browser host, working renderer service facade, account integration, or upstream connection yet. Do not interpret successful module import as successful manager execution.
+The first milestone remains incomplete. No later milestone is implemented. The CLI harness is runnable, but there is no browser host, working renderer service facade, account integration, or verified live upstream connection yet. Do not interpret successful module import as successful manager execution.
 
 ## Reproducing the experiment
 
@@ -30,6 +30,6 @@ The candidate's exact factory target, expected input hash, purpose, and replacem
 
 The next step is to instantiate one manager with explicit host adapters, then expose per-browser facades over that single instance. Required acceptance checks remain unperformed: real-server history, turn submission, streamed updates, competing approval responses, browser reconnect, and simultaneous operation from two browsers. There is no single-client substitute.
 
-The real upstream Unix socket path has not been supplied. Do not discover a random local socket or start a replacement server. The target server's protocol version, account state, and supported initialization capabilities still require verification. Its documented lifecycle is `initialize` then `initialized`; see the [official app-server documentation](https://learn.chatgpt.com/docs/app-server). No calls or mutations have been sent to any server.
+The real upstream Unix socket path has not been supplied. Do not discover a random local socket or start a replacement server. The target server's protocol version, account state, and supported initialization capabilities still require verification. Its documented lifecycle is `initialize` then `initialized`; see the [official app-server documentation](https://learn.chatgpt.com/docs/app-server). Only temporary test servers have been contacted; no calls or mutations have been sent to the separately managed server. An AF_UNIX transport and an explicit read-only `upstream:check` command are now available; see the host contracts.
 
 `assets:check` rehashes the input archive and every extracted renderer file. Unit tests cover ASAR byte preservation, unsafe paths, truncation, factory-only loading, cyclic imports, export forms, and explicit browser-dependency errors. Browser smoke tests and workflow acceptance tests remain pending.
