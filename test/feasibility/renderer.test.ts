@@ -39,6 +39,23 @@ for (const accountType of ['apiKey', 'chatgpt'] as const) test(`original rendere
   const route = `${origin}/local/${fixture.thread.id}`;
   await Promise.all([first.goto(route), second.goto(route)]);
   for (const page of [first, second]) await expect(page.getByText('Previous answer', { exact: true })).toBeVisible({ timeout: 30000 });
+  await first.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await first.getByRole('menuitem', { name: /Rename/ }).click();
+  await first.getByRole('dialog').getByRole('textbox').fill('Renamed through original renderer');
+  await first.getByRole('dialog').getByRole('button', { name: /Save/ }).click();
+  await expect.poll(() => fixture.thread.name).toBe('Renamed through original renderer');
+  await second.getByRole('button', { name: 'Show sidebar', exact: true }).click();
+  await expect(second.getByRole('button', { name: 'Renamed through original renderer', exact: true })).toBeVisible();
+  const ordinaryFile = join(directory, 'ordinary.txt');
+  await writeFile(ordinaryFile, 'preserved');
+  await first.getByRole('button', { name: 'Archive chat', exact: true }).click();
+  await expect.poll(() => fixture.frames.filter(frame => frame.method === 'thread/archive').length).toBe(1);
+  assert.equal(await readFile(ordinaryFile, 'utf8'), 'preserved');
+  await first.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(() => fixture.frames.filter(frame => frame.method === 'thread/unarchive').length).toBe(1);
+  await Promise.all([first.goto(route), second.goto(route)]);
+  for (const page of [first, second]) await expect(page.getByText('Previous answer', { exact: true })).toBeVisible({ timeout: 30000 });
+
   await first.getByRole('textbox', { name: 'Work with Codex' }).fill('Original renderer turn');
   await first.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(() => fixture.frames.filter(frame => frame.method === 'turn/start').length, { timeout: 15000 }).toBe(1);

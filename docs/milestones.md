@@ -88,15 +88,32 @@ with retained callbacks, subsequent approval arbitration and one upstream turn.
 
 The pending-archive adapter now persists archive intents instead of rejecting
 all archive operations. Successful upstream archive responses clear the intent;
-unarchive also clears it. Failed or interrupted operations retain their intent
-for inspection and are never automatically replayed. The host does not own Git
+acknowledged unarchive also clears it. Failed or interrupted operations retain
+their intent for inspection and are never automatically replayed. The host does not own Git
 worktrees: archiving an ordinary workspace leaves its files intact, and requests
 requiring managed-worktree cleanup reject explicitly.
+
+Lifecycle calls through the original renderer facade now share the per-thread
+mutation queue with resume and turn submission. Renames require acknowledgement,
+then read the authoritative title; completed lifecycle calls refresh the shared
+catalogue. Upstream notifications continue to update the bundled manager.
+
+The `thread-lifecycle-ledger` in the host's `webui-state.json` records the last
+mutation per thread, its parameters, status, and failure message. A reservation is
+written before dispatch. Reserved or unknown outcomes block subsequent lifecycle
+mutations for that thread across restarts; they are never replayed. Operators can
+inspect this record and upstream state before resolving it manually while the
+WebUI is stopped. Explicit upstream rejections remain visible as failed records.
+Unarchive's vendor-side cancellation callback preserves pending archive intent
+until an upstream success response, including when unarchive fails.
 
 The shared-manager browser regression now exercises rename from one device,
 interruption from another, archive with the renderer's default cleanup choice,
 and unarchive with restored history. Execution interruption remains authoritative
-in the app server; this host has no separate REPL jobs to kill.
+in the app server; this host has no separate REPL jobs to kill. The original
+renderer regression also uses the rename dialog, sidebar archive action, and
+Undo to unarchive, checking narrow-browser rename convergence and preserved
+workspace contents.
 
 
 ## Pagination, creation, and follow-up dispatch

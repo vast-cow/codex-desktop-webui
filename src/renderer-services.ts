@@ -40,6 +40,15 @@ export function rendererServices(bindings: any) {
   }
   class AdmittedManagerFacade extends ManagerFacade {
     constructor(getManager: () => any) { super(getManager); }
+    setThreadTitle(id: string, title: string, options: any = {}) {
+      return bindings.lifecycle(id, () => super.setThreadTitle(id, title, { ...options, requireAcknowledgement: true }));
+    }
+    archiveConversation(id: string, options: any) {
+      return bindings.lifecycle(id, () => super.archiveConversation(id, options));
+    }
+    unarchiveConversation(id: string, options: any) {
+      return bindings.lifecycle(id, () => super.unarchiveConversation(id, options));
+    }
     startConversation(options: any, callbacks: any) { return bindings.startConversation(options, callbacks); }
     resumeConversation(options: any, callbacks?: any) {
       return bindings.resumeConversation(options, () => super.resumeConversation(options, callbacks));

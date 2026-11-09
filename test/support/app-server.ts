@@ -14,6 +14,7 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
     ephemeral: false, turns: [{ id: 'history-turn', status: 'completed', error: null,
       items: [{ id: 'history-user', type: 'userMessage', content: [{ type: 'text', text: 'Previous message', text_elements: [] }] },
         { id: 'history-agent', type: 'agentMessage', text: 'Previous answer', phase: 'final_answer' }] }] };
+  const archived = new Set<string>();
   const threads = new Map([[thread.id, thread]]);
   const initialThread = thread;
   const notify = (method: string, params: any) => {
@@ -42,7 +43,7 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
       case 'permissionProfile/list': result = { data: [{ id: ':read-only', name: 'Read only', allowed: true }], nextCursor: null }; break;
       case 'model/list': result = { data: [{ id: 'fixture-model', model: 'fixture-model', displayName: 'Fixture', isDefault: true, supportedReasoningEfforts: [] }], nextCursor: null }; break;
       case 'thread/list': {
-        const data = [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+        const data = [...threads.values()].filter(thread => archived.has(thread.id) === (frame.params.archived === true)).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
         const offset = frame.params.cursor == null ? 0 : Number(frame.params.cursor);
         const limit = Math.min(frame.params.limit ?? 50, 20);
         result = { data: data.slice(offset, offset + limit), nextCursor: offset + limit < data.length ? String(offset + limit) : null }; break;
@@ -60,8 +61,8 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
         if (turn) { turn.status = 'interrupted'; notify('turn/completed', { threadId: thread.id, turn }); }
         result = {}; break;
       }
-      case 'thread/archive': result = {}; notify('thread/archived', { threadId: thread.id }); break;
-      case 'thread/unarchive': result = { thread }; notify('thread/unarchived', { threadId: thread.id }); break;
+      case 'thread/archive': archived.add(thread.id); result = {}; notify('thread/archived', { threadId: thread.id }); break;
+      case 'thread/unarchive': archived.delete(thread.id); result = { thread }; notify('thread/unarchived', { threadId: thread.id }); break;
       case 'thread/read': result = { thread: { ...thread, turns: frame.params.includeTurns === false ? [] : thread.turns } }; break;
       case 'thread/resume': {
         const limit = frame.params.initialTurnsPage?.limit;

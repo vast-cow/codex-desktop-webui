@@ -34,6 +34,8 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     if (level === 'error' || level === 'warning') console.error(`[manager:${level}] ${message}`, fields?.sensitive?.error?.message ?? '');
   }]));
   const persist = (key: string, value: unknown) => { void state.writeValue(key, value).catch(error => console.error('Host state write failed:', error.message)); };
+  const lifecycleMethods = new Set(['thread/name/set', 'thread/archive', 'thread/unarchive']);
+  const lifecycleLocks = new Set<string>();
   const transport = {
     hostId: upstream.hostId,
     // The handshake is not a semantic server version. Unknown versions disable
@@ -60,8 +62,37 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
           params = { ...(params as any), config: sessionConfig((params as any).config) };
         }
         try {
-          const result = await upstream.sendRequest(method, params);
-          if (method === 'thread/archive') await pendingThreadArchives.remove((params as any).threadId);
+          const id = (params as any)?.threadId;
+          const lifecycle = lifecycleMethods.has(method);
+          if (lifecycle) {
+            if (typeof id !== 'string' || !id) throw Error('Lifecycle operation requires a threadId');
+            if (lifecycleLocks.has(id)) throw Error('A thread lifecycle operation is already in progress');
+            lifecycleLocks.add(id);
+          }
+          let result;
+          try {
+            if (lifecycle) await state.updateGlobalState('thread-lifecycle-ledger', value => {
+              const previous = value?.[id];
+              if (previous && ['reserved', 'unknown'].includes(previous.status)) {
+                throw Error('Thread lifecycle outcome is uncertain; inspect upstream state before another mutation');
+              }
+              return { ...value, [id]: { method, params, status: 'reserved' } };
+            });
+            try { result = await upstream.sendRequest(method, params); }
+            catch (error) {
+              if (lifecycle) await state.updateGlobalState('thread-lifecycle-ledger', value => ({ ...value,
+                [id]: { method, params, status: error instanceof DeliveryError && error.outcome === 'unknown' ? 'unknown' : 'failed',
+                  error: (error as Error).message } }));
+              throw error;
+            }
+            if (lifecycle) {
+              // A response acknowledges delivery. Read back the authoritative title;
+              // archive membership is reconciled by the manager's notifications/list.
+              await state.updateGlobalState('thread-lifecycle-ledger', value => ({ ...value,
+                [id]: { method, params, status: 'completed' } }));
+            }
+          } finally { if (lifecycle) lifecycleLocks.delete(id); }
+          if (method === 'thread/archive' || method === 'thread/unarchive') await clearPendingArchive((params as any).threadId);
           if (method === 'turn/start') for (const send of activeSends.values()) {
             if (send.threadId === (params as any)?.threadId) send.delivered = true;
           }
@@ -182,14 +213,21 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
       return normalize({ personality: config.personality ?? null, defaultFeatureOverrides: {}, instructionOverrides: null, writingBlocks: false, includeProseDetailLevelInstructions: false });
     },
   };
+  const clearPendingArchive = (id: string) => state.updateGlobalState('pending-thread-archives', value => {
+    const next = { ...value }; delete next[id]; return next;
+  });
   const pendingThreadArchives = {
     async add(id: string, options: { cwd: string; cleanupWorktree: boolean; silent?: boolean }) {
       if (options.cleanupWorktree) unsupported('archive with managed worktree cleanup');
+      const previous = (state.readValue('thread-lifecycle-ledger') as any)?.[id];
+      if (previous && ['reserved', 'unknown'].includes(previous.status)) {
+        throw Error('Thread lifecycle outcome is uncertain; inspect upstream state before changing archive intent');
+      }
       await state.updateGlobalState('pending-thread-archives', value => ({ ...value, [id]: options }));
     },
-    remove: (id: string) => state.updateGlobalState('pending-thread-archives', value => {
-      const next = { ...value }; delete next[id]; return next;
-    })
+    // The vendor calls remove before unarchive delivery; only acknowledged
+    // transport completion may discard a durable archive intent.
+    remove: async (_id: string) => {}
   };
   return {
     options: { hostId: upstream.hostId, transport, logger, scheduler, storage, savedReadState, filesystem, runtime, settings,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -184,10 +184,27 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   assert.match(JSON.stringify(recovered), /Shared stream through reconnect after disconnect/);
   await reconnected.evaluate(async id => await (window as any).feasibility.manager.setThreadTitle(id, 'Renamed from another device'), fixture.thread.id);
   assert.equal(fixture.thread.name, 'Renamed from another device');
+  for (const page of [second, reconnected]) {
+    const snapshot = await page.evaluate(async () => await (window as any).feasibility.manager.getCachedThreadSearchSnapshot());
+    assert.equal(snapshot.conversations.find((entry: any) => entry.summary.conversationId === fixture.thread.id)?.summary.title, 'Renamed from another device');
+  }
+  await Promise.all([second, reconnected].map((page, index) => page.evaluate(async ({ id, name }) =>
+    await (window as any).feasibility.manager.setThreadTitle(id, name), { id: fixture.thread.id, name: `Concurrent rename ${index}` })));
+  for (const page of [second, reconnected]) {
+    const snapshot = await page.evaluate(async () => await (window as any).feasibility.manager.getCachedThreadSearchSnapshot());
+    assert.equal(snapshot.conversations.find((entry: any) => entry.summary.conversationId === fixture.thread.id)?.summary.title, fixture.thread.name);
+  }
   await second.evaluate(async id => await (window as any).feasibility.manager.interruptConversation(id, 'user'), fixture.thread.id);
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/interrupt').length, 1);
+  const ordinaryFile = join(directory, 'ordinary-workspace.txt');
+  await writeFile(ordinaryFile, 'Keep ordinary workspace files');
   await reconnected.evaluate(async id => await (window as any).feasibility.manager.archiveConversation(id, { useAppServerPins: false }), fixture.thread.id);
   assert.equal(fixture.frames.filter(frame => frame.method === 'thread/archive').length, 1);
+  assert.equal(await readFile(ordinaryFile, 'utf8'), 'Keep ordinary workspace files');
+  for (const page of [second, reconnected]) {
+    const snapshot = await page.evaluate(async () => await (window as any).feasibility.manager.getCachedThreadSearchSnapshot());
+    assert.ok(!snapshot.conversations.some((entry: any) => entry.summary.conversationId === fixture.thread.id));
+  }
   await second.evaluate(async id => await (window as any).feasibility.manager.unarchiveConversation(id, { restorePin: false, useAppServerPins: false }), fixture.thread.id);
   assert.equal(fixture.frames.filter(frame => frame.method === 'thread/unarchive').length, 1);
   await second.evaluate(async ({ id, cwd }) => {

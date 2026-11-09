@@ -94,6 +94,16 @@ parentPort!.on('message', async message => {
         RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
         startConversation: (options: any, callbacks: any) => settingsCall(() =>
           threadCreation.run(options, () => manager.startConversation(options, callbacks))),
+        lifecycle: (id: string, dispatch: () => Promise<any>) => rendererMutation(id, async () => {
+          const result = await dispatch();
+          const entry = (state.readValue('thread-lifecycle-ledger') as any)?.[id];
+          if (entry?.method === 'thread/name/set' && entry.status === 'completed') {
+            const { thread } = await adapters.options.transport.sendRequest('thread/read', { threadId: id, includeTurns: false });
+            manager.onNotification('thread/name/updated', clone({ threadId: id, threadName: thread.name }));
+          }
+          await manager.refreshRecentConversations();
+          return result;
+        }),
         resumeConversation: (options: any, dispatch: () => Promise<any>) => rendererMutation(options.conversationId, dispatch),
         sendFollowUpMessage: (id: string, options: any) => rendererMutation(id, () => manager.sendFollowUpMessage(id, options)),
         startTurn: (id: string, options: any, ...args: any[]) => rendererMutation(id,

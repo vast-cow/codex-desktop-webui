@@ -51,6 +51,8 @@ test('manager adapter uses actual upstream account/config and persists host-owne
     uncertain: { cwd: directory, cleanupWorktree: false }
   });
   await adapters.options.pendingThreadArchives.remove('uncertain');
+  assert.ok((state.readValue('pending-thread-archives') as any).uncertain);
+  await adapters.options.transport.sendRequest('thread/unarchive', { threadId: 'uncertain' });
   assert.deepEqual(state.readValue('pending-thread-archives'), {});
 });
 
@@ -125,4 +127,53 @@ test('submission admission survives restart and fences uncertain delivery', asyn
   await assert.rejects(second.options.transport.sendRequest('turn/start', { threadId: 't' }), /Not connected/);
   await retry.release(false);
   assert.ok(await second.options.runtime.queuedMessages.acquireSendLock('t', 'distinct'));
+});
+
+
+test('lifecycle delivery is durable, conflicting mutations reject, and uncertain mutations never replay', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'lifecycle-'));
+  const state = await HostState.open(directory);
+  const upstream = new Upstream({ serverUrl: 'ws://127.0.0.1:1/' });
+  const { DeliveryError } = await import('../src/upstream.js');
+  let calls = 0;
+  let release!: () => void;
+  upstream.sendRequest = async () => {
+    calls++;
+    await new Promise<void>(resolve => { release = resolve; });
+    throw new DeliveryError('Disconnected after dispatch', 'unknown');
+  };
+  const first = managerAdapters(state, upstream, directory);
+  t.after(async () => { await first.dispose(); await rm(directory, { recursive: true, force: true }); });
+  await first.options.pendingThreadArchives.add('t', { cwd: directory, cleanupWorktree: false });
+  const archive = first.options.transport.sendRequest('thread/archive', { threadId: 't' });
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(first.options.transport.sendRequest('thread/unarchive', { threadId: 't' }), /in progress/);
+  release();
+  await assert.rejects(archive, /after dispatch/);
+  const restarted = managerAdapters(await HostState.open(directory), upstream, directory);
+  t.after(() => restarted.dispose());
+  await assert.rejects(restarted.options.transport.sendRequest('thread/archive', { threadId: 't' }), /uncertain/);
+  await assert.rejects(restarted.options.transport.sendRequest('thread/name/set', { threadId: 't', name: 'conflict' }), /uncertain/);
+  assert.equal(calls, 1);
+  assert.equal((state.readValue('thread-lifecycle-ledger') as any).t.status, 'unknown');
+  assert.ok((state.readValue('pending-thread-archives') as any).t);
+});
+
+
+test('failed unarchive retains archive intent and acknowledged completion clears it', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'lifecycle-failure-'));
+  const state = await HostState.open(directory);
+  const upstream = new Upstream({ serverUrl: 'ws://127.0.0.1:1/' });
+  upstream.sendRequest = async () => { throw Error('Upstream rejected mutation'); };
+  const adapters = managerAdapters(state, upstream, directory);
+  t.after(async () => { await adapters.dispose(); await rm(directory, { recursive: true, force: true }); });
+  await adapters.options.pendingThreadArchives.add('t', { cwd: directory, cleanupWorktree: false });
+  await adapters.options.pendingThreadArchives.remove('t');
+  await assert.rejects(adapters.options.transport.sendRequest('thread/unarchive', { threadId: 't' }), /rejected mutation/);
+  assert.ok((state.readValue('pending-thread-archives') as any).t);
+  assert.equal((state.readValue('thread-lifecycle-ledger') as any).t.status, 'failed');
+  upstream.sendRequest = async () => ({});
+  await adapters.options.transport.sendRequest('thread/unarchive', { threadId: 't' });
+  assert.deepEqual(state.readValue('pending-thread-archives'), {});
+  assert.equal(((await HostState.open(directory)).readValue('thread-lifecycle-ledger') as any).t.status, 'completed');
 });
