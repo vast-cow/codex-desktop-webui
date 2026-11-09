@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { HostState } from './host-state.js';
 import { HostScheduler } from './scheduler.js';
-import { Upstream, type RpcId } from './upstream.js';
+import { DeliveryError, Upstream, type RpcId } from './upstream.js';
 
 export function unsupported(operation: string): never { throw Error(`Host operation unavailable: ${operation}`); }
 
@@ -22,7 +22,9 @@ export function sessionConfig(value: any): any {
 export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value) {
   const scheduler = new HostScheduler();
   const startingThreads = new Set<string>();
-  const sendLocks = new Set<string>(), sentMessages = new Set<string>();
+  const sendLocks = new Set<string>();
+  const activeSends = new Map<string, { threadId: string; delivered: boolean }>();
+  const ledgerKey = 'submission-delivery-ledger';
   const requestListeners = new Set<(event: any) => void>();
   const unreadListeners = new Set<(event: any) => void>();
   const unread = new Set<string>((state.readValue('unread-thread-ids') as string[] | undefined) ?? []);
@@ -54,7 +56,18 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
         if (['thread/start', 'thread/resume', 'turn/start'].includes(method) && (params as any)?.config) {
           params = { ...(params as any), config: sessionConfig((params as any).config) };
         }
-        return await upstream.sendRequest(method, params);
+        try {
+          const result = await upstream.sendRequest(method, params);
+          if (method === 'turn/start') for (const send of activeSends.values()) {
+            if (send.threadId === (params as any)?.threadId) send.delivered = true;
+          }
+          return result;
+        } catch (error) {
+          if (method === 'turn/start' && error instanceof DeliveryError && error.outcome === 'unknown') {
+            for (const send of activeSends.values()) if (send.threadId === (params as any)?.threadId) send.delivered = true;
+          }
+          throw error;
+        }
       }
       catch (error) { for (const listener of requestListeners) listener({ type: 'failed', hostId: upstream.hostId, method, error }); throw error; }
     }
@@ -110,9 +123,34 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
       releaseStartTurn(id: string) { startingThreads.delete(id); },
       async acquireSendLock(id: string, messageId: string) {
         const key = JSON.stringify([id, messageId]);
-        if (sendLocks.has(key) || sentMessages.has(key)) return null;
+        if (sendLocks.has(key)) return null;
         sendLocks.add(key);
-        return { async release(sent: boolean) { sendLocks.delete(key); if (sent) sentMessages.add(key); } };
+        let reserved = false;
+        try {
+          // Persist before admission: a process crash must never replay an uncertain send.
+          await state.updateGlobalState(ledgerKey, value => {
+            const ledger = value ?? {};
+            if (Object.hasOwn(ledger, key)) return ledger;
+            reserved = true;
+            return { ...ledger, [key]: 'reserved' };
+          });
+        } catch (error) { sendLocks.delete(key); throw error; }
+        if (!reserved) { sendLocks.delete(key); return null; }
+        const delivery = { threadId: id, delivered: false };
+        activeSends.set(key, delivery);
+        let released = false;
+        return { async release(sent: boolean) {
+          if (released) return;
+          released = true;
+          try {
+            await state.updateGlobalState(ledgerKey, value => {
+              const ledger = { ...value };
+              if (sent || delivery.delivered) ledger[key] = 'delivered-or-unknown';
+              else delete ledger[key];
+              return ledger;
+            });
+          } finally { activeSends.delete(key); sendLocks.delete(key); }
+        } };
       }
     },
   };
@@ -145,6 +183,6 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
       sendAppServerResponse: respond, sendApprovalResponse: respond,
       threadExecution: { executeDynamicToolCall: () => unsupported('desktop dynamic tools') },
     },
-    async dispose() { scheduler.dispose(); startingThreads.clear(); sendLocks.clear(); sentMessages.clear(); requestListeners.clear(); unreadListeners.clear(); await state.flush(); }
+    async dispose() { scheduler.dispose(); startingThreads.clear(); sendLocks.clear(); activeSends.clear(); requestListeners.clear(); unreadListeners.clear(); await state.flush(); }
   };
 }

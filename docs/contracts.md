@@ -13,7 +13,7 @@ These observations come from the pinned packaged modules, not an asserted comple
 
 The constructor checks `transport.hostId === hostId`. It constructs ownership coordination, queued follow-up handling, history pagination, resume recovery, workspace membership, filesystem watches, unread state, attachment services, account lifecycle, and thread discovery. `manager-adapters.ts` now supplies explicit local services for the fixture-tested execution paths. Supplying empty objects would not be a valid manager integration. Explicit adapters and meaningful unsupported-operation errors are required.
 
-Keep one manager independent of browser lifetimes. RPC stub disposal must release only the browser's leases/subscriptions. Manager retirement is a distinct host operation. The vendor manager plus host transport now pass competing-approval and browser-reconnect tests. Durable mutation deduplication and automatic upstream reconciliation remain unimplemented.
+Keep one manager independent of browser lifetimes. RPC stub disposal must release only the browser's leases/subscriptions. Manager retirement is a distinct host operation. The vendor manager plus host transport now pass competing-approval and browser-reconnect tests. Queued submission admission is persisted before dispatch; automatic upstream reconciliation remains incomplete.
 
 ## Renderer services
 
@@ -147,9 +147,14 @@ activity methods, so the renderer does not attempt automatic decisions.
 The worker's disposal-stack adapter uses the VM's disposal symbol and prototypes.
 Persistent-record edits reuse `waIq.m`, including expected-value checks, merging
 independent edits instead of overwriting whole draft maps. Queue execution uses
-independent per-thread start locks and per-message send locks. Accepted message
-IDs are retained for the worker lifetime; durable transport-level deduplication
-across process restarts remains outside this milestone.
+independent per-thread start locks and per-message send locks. Queued message IDs are recorded in the WebUI delivery ledger before admission.
+Concurrent claims for the same thread/message pair have one winner. Successful
+or uncertain turn delivery retains the claim even if the manager releases with
+`sent=false`. Confirmed unsent attempts can release their claim for retry. A crash
+leaves the reservation in place: safety takes priority over automatically retrying
+a potentially delivered mutation. Distinct message IDs remain independent. This
+ledger covers the manager's queued-send path, not arbitrary RPC mutations. It is
+host-owned, not browser-owned, and currently has no automatic compaction.
 
 ## Recovery and legacy event synchronization
 

@@ -79,3 +79,40 @@ test('session config preserves explicit falsy values and invalid policy types', 
   assert.deepEqual(sessionConfig({ absent: null, nested: { absent: null, enabled: false, count: 0, value: '', list: [] }, shell_environment_policy: '' }),
     { nested: { enabled: false, count: 0, value: '', list: [] }, shell_environment_policy: '' });
 });
+
+test('submission admission survives restart and fences uncertain delivery', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'manager-delivery-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const upstream = new Upstream({ serverUrl: 'ws://127.0.0.1:1/' });
+  const { DeliveryError } = await import('../src/upstream.js');
+  upstream.sendRequest = async () => { throw new DeliveryError('Disconnected after dispatch', 'unknown'); };
+  const state = await HostState.open(directory);
+  const first = managerAdapters(state, upstream, directory);
+  const queue = first.options.runtime.queuedMessages;
+  const [lock, competing] = await Promise.all([queue.acquireSendLock('t', 'm'), queue.acquireSendLock('t', 'm')]);
+  assert.ok(lock); assert.equal(competing, null);
+  await assert.rejects(first.options.transport.sendRequest('turn/start', { threadId: 't' }), /after dispatch/);
+  await lock.release(false);
+  upstream.sendRequest = async () => ({ turn: { id: 'turn' } });
+  const success = await queue.acquireSendLock('t', 'success');
+  assert.ok(success);
+  await first.options.transport.sendRequest('turn/start', { threadId: 't' });
+  await success.release(true);
+  // An interrupted process may leave a reservation without any release.
+  assert.ok(await queue.acquireSendLock('t', 'interrupted'));
+  await first.dispose();
+  const second = managerAdapters(await HostState.open(directory), upstream, directory);
+  t.after(() => second.dispose());
+  assert.equal(await second.options.runtime.queuedMessages.acquireSendLock('t', 'm'), null);
+  assert.equal(await second.options.runtime.queuedMessages.acquireSendLock('t', 'success'), null);
+  assert.equal(await second.options.runtime.queuedMessages.acquireSendLock('t', 'interrupted'), null);
+  const distinct = await second.options.runtime.queuedMessages.acquireSendLock('t', 'distinct');
+  assert.ok(distinct);
+  await distinct.release(false);
+  upstream.sendRequest = async () => { throw new DeliveryError('Not connected', 'not-sent'); };
+  const retry = await second.options.runtime.queuedMessages.acquireSendLock('t', 'distinct');
+  assert.ok(retry);
+  await assert.rejects(second.options.transport.sendRequest('turn/start', { threadId: 't' }), /Not connected/);
+  await retry.release(false);
+  assert.ok(await second.options.runtime.queuedMessages.acquireSendLock('t', 'distinct'));
+});

@@ -19,6 +19,22 @@ original-renderer desktop/narrow browser contexts); original archive and 18,926
 extracted files unchanged. The configured TCP endpoint passed read-only initialize
 and account acquisition. These checks do not constitute full milestone acceptance.
 
+## Durable submission admission increment
+
+Queued sends reserve a thread/message identity in the WebUI state file before
+execution. Reservations survive worker/host restart. Successful and uncertain
+turn deliveries remain fenced; confirmed unsent attempts can retry. Tests cover
+concurrent claims, restart, interrupted reservations, distinct messages, and
+unknown versus not-sent delivery errors. This does not cover arbitrary mutations
+or certify the remaining workflow and service acceptance criteria.
+
+Validation: Node.js 22 build, 46 unit tests, and all 8 feasibility regressions
+pass (including original-renderer browser checks); source integrity check
+verifies the original archive and all 18,926 extracted files. Reservations are
+conservative after a crash: an unsent reservation may require a new explicit
+submission with a new message identity. Ledger compaction and a user-facing
+reconciliation workflow remain outstanding.
+
 ## Remaining acceptance work
 
 Plan 2: complete workflow coverage for history pagination, thread creation,
