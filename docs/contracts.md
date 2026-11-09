@@ -21,7 +21,7 @@ Module `hms3` requires `appServices.appServerManagers`. Observed calls include `
 
 Module `Wbxh` requires `appServices.applicationState`, including `read(key)` returning `{value}` and `write(key, value)` returning `{success}`. Thread membership, project catalog, project presentation, and thread metadata can have separate service overrides. A generic WebSocket JSON relay cannot reproduce these capabilities or their lifecycle.
 
-`appInfo`, account state, workspace initialization, service bootstrap transport, and the complete legacy `electronBridge` message schema remain to be traced and implemented. Do not fabricate login or subscription status to satisfy renderer startup. The bridge now transports the existing bootstrap port and reports unavailable native operations.
+The core capability table below records appInfo, account state, workspace initialization and bootstrap transport; the source inventory records the wider legacy message surface. Do not fabricate login or subscription status to satisfy renderer startup. The bridge now transports the existing bootstrap port and reports unavailable native operations.
 
 ## Upstream and application boundaries
 
@@ -59,8 +59,7 @@ They cover concurrent request correlation, first-response approval arbitration,
 missing sockets, wrong paths, incompatible initialization, malformed frames, and
 reconnection without replaying sent mutations. Sent requests rejected by a disconnect
 or timeout have an `unknown` outcome; requests rejected before sending have a
-`not-sent` outcome. Reconnection is explicit and repeats initialization. This layer
-does not yet provide state reconciliation, browser facades, or durable deduplication.
+`not-sent` outcome. Reconnection is explicit and repeats initialization. This transport layer alone does not provide state reconciliation; browser facades and durable admission are supplied by the worker layers described below.
 
 ## Host state and scheduling adapters
 
@@ -194,3 +193,110 @@ the browser retries for 25 seconds. Sequence numbers and acknowledgements recove
 missed frames without delivering an RPC instruction twice in that session. Each
 direction has an 8 MiB buffer limit. Expired sessions and replaced workers fail
 explicitly, and their instructions never replay into a new worker.
+
+## Core renderer audit (2026-11-09)
+
+Scope is local Codex thread discovery, creation/resume, history, turn execution,
+approvals, settings and their subscriptions. The renderer also contains ChatGPT,
+Pages, voice, browser automation, terminals and native window integrations. Those
+are not requirements to emulate with successful no-ops.
+
+The reproducible [source inventory](renderer-inventory.json) records direct
+service references, literal legacy message candidates (including their argument expressions; postMessage can also target other transports),
+and the pinned manager facade's method bodies. Run
+`npm run build && npx tsx scripts/inventory-renderer.ts` after asset preparation.
+It scans generated copies only. Facade bodies preserve the actual minified
+arguments, forwarding expressions and return values instead of assigning guessed
+types to vendor records. Dynamic messages are marked explicitly. Static references
+alone cannot prove that every optional feature is reachable in a core workflow.
+
+### Implemented foundational capabilities
+
+All methods cross Cap'n Web as asynchronous calls, even when their local body
+returns synchronously. `dup`, `onRpcBroken` and `Symbol.dispose` belong to the
+RPC runtime, not the upstream app-server protocol.
+
+| Capability | Arguments → result | Ownership, lifecycle and errors | Status |
+| --- | --- | --- | --- |
+| appServerManagers.subscribe | hostId, callback → disposable lease; callback({status:"ready", manager}) | Validates host ID. Each call creates a separate vendor facade over the single manager. Releasing a lease releases its retained callback, never the manager. | Implemented |
+| appServerManagers.openAccount | hostId → account capability | Unknown host throws. Account lifetime is separate from registry subscription. | Implemented |
+| manager.subscribe | {type, key, listener, methods? / event?} → lease | Vendor supports host/thread/subagentTitle/turn/item/notification/conversation/event subscriptions. Events are scoped to the independent facade; vendor owns caches and upstream notification processing. | Vendor implementation reused |
+| manager.registerReplayAdmission | callback(thread, followUpContext) → lease | Vendor duplicates callback and releases on RPC break or lease disposal. Admission does not authorize replay after uncertain delivery. | Vendor implementation reused |
+| manager.subscribeOpeningTurnContext / addConversationHistoryInvalidationListener | listener → lease | Vendor callback adapters own retained callback references. Browser retirement must not retire the shared manager. | Vendor implementation reused |
+| account.sendRequest | method, params, options → upstream result | Same shared transport; rejects upstream failures. Auth/account reads redact credentials. | Implemented |
+| account.getAccount / getAuthMethod | options → actual upstream account/auth result | No fabricated login, plan or subscription. | Implemented |
+| account.subscribeAuthStatus | callback → lease | Duplicates callback; removes only its exact manager listener on disposal. Rejected callbacks are contained. | Implemented |
+| codexAccount.read / subscribe | () → snapshot; callback(snapshot) → lease | Host owns actual acquired/acquiring/unavailable state. Initial and subsequent snapshots are queued in order. Disposal suppresses pending callbacks. | Implemented; see account contract |
+| applicationState.read / write | key → {value}; key,value → {success:true} | Shared WebUI HostState; success only after durable write. No applicationState subscription is asserted. Storage errors reject. | Implemented |
+| settings.read / readAll / write | key → {effective}; () → {values}; key,value → void | Shared WebUI preferences in renderer-setting namespace, separate from upstream execution config. Missing effective values remain undefined so renderer defaults apply. Invalid keys and persistence failures reject. | Added |
+| settings.subscribe | key, callback({effective}) → lease | Initial snapshot then changed committed values; unrelated state commits emit nothing. Each browser has its own retained listener and ordered callback queue. Disposal is idempotent, suppresses pending callbacks and leaves other sessions subscribed. | Added |
+| appInfo.get / getPackagingInfo / getLocaleInfo / getSystemInfo | () → app metadata / {isPackaged:false} / locale record / {platform,arch} | Host metadata; locale currently fixed en-US. No subscriptions. | Implemented, fixed locale limitation |
+| startup.whenReady / isSentryEnabled / reach | () → null / false; phase → void | Host is ready before attach; telemetry disabled; milestone set belongs to facade. | Implemented |
+| executionHosts.getDefaultHost | () → hostId | Returns the actual shared manager host. No fabricated remote hosts. | Implemented |
+| workspaceRoots.read / cancel | requestId, options → {roots,labels}; requestId → void | Validated host root; immutable snapshot. No background operation exists to cancel. | Implemented, single root |
+| executionPaths.readHomePaths / readCodexHome / readHomeDirectory | () → {codexHome,workspacesRoot} / string / string | Host filesystem paths, never browser paths. Read-only, no subscriptions. | Implemented |
+| requestUserInputAutoResolution.enabled | property → false | Disabled capability; optional activity methods absent. Approvals still use the manager. | Explicitly disabled |
+
+### Thread and execution delegation
+
+The exact callable surface is under `managerFacade` in the inventory. Core
+operations include refreshRecentConversations, getCachedThreadSearchSnapshot,
+resumeConversation, getConversation, getLoadedConversationHistory, startTurn,
+sendFollowUpMessage, interruptConversation and the approval response operations exposed
+by the vendor. Their argument and return contracts are those of the pinned vendor
+forwarders and computed snapshot methods, reproduced there without replacement.
+
+The manager owns thread caches, streaming state, history pagination, queued
+follow-ups, and approval arbitration. The app server owns execution and canonical
+thread state. HostState owns drafts, unread state, workspace assignments and the
+delivery ledger. The browser owns presentation and RPC references only.
+startTurn and sendFollowUpMessage are overridden solely to serialize mutations
+per thread and admit delivery safely. Upstream errors propagate as VM-realm
+Errors; uncertain mutation outcomes are never automatically replayed.
+thread/start, thread/resume and turn/start config flags remove null placeholders;
+config/read remains authoritative for execution settings.
+
+Optional threadMetadata, threadProjectAssignments, projectCatalog,
+projectPresentation and localThreadCatalog services remain absent: the observed
+renderer uses applicationState or vendor-manager fallback paths. There is no
+second cache pretending to own these records. threadConfiguration's
+readDeveloperInstructions and readMcpConfig are not implemented; custom native
+instruction assembly is a remaining contract gap, not an empty successful result.
+No app-server capability for desktop instruction generation has been assumed.
+settings.writeForAgent and account-scoped agent settings are also unsupported;
+adding local preferences does not supply agent control of settings.
+
+### Legacy electronBridge
+
+| Message and arguments | Result/event | Ownership and status |
+| --- | --- | --- |
+| connect-app-host, transferred port | root RPC capability over port | Browser bootstrap; independent resumable RPC session over shared worker. Not an HTTP legacy mutation. |
+| electron-window-focus-request | electron-window-focus-changed {isFocused} | Browser-local document.hasFocus; implemented without native focus claims. |
+| request-app-server-state | codex-app-server-connection-changed {hostId,state}; when connected codex-app-server-initialized {hostId,appServerVersion} | Actual shared transport state; version may be null. |
+| persisted-atom-sync-request | persisted-atom-sync {state,canWritePrimaryWindowTabPersistence:true} | Snapshot of host WebUI persisted-atoms; not desktop files. |
+| persisted-atom-update {key,value?,deleted?,recordUpdate?} | persisted-atom-updated {key,value,deleted} | Serialized host commit, vendor expected-value record merging, broadcast once through SSE to every browser. |
+| All other direct or dynamic native messages in inventory | HTTP error; unsupported native messages map to 501 | Explicit rejection and browser unavailable-integration diagnostic; no misleading success. |
+
+POST failures reject sendMessageFromView. GET /bridge-events subscribes before
+snapshot acquisition and then drains buffered changes, preserving bootstrap order.
+SSE close releases that stream only. RPC recovery retains leases during a bounded
+outage; expiry or worker replacement ends them and requires fresh facades.
+Session cleanup and lease disposal now share a single idempotent cleanup wrapper.
+
+### Verification limits
+
+The source inventory is evidence for auditing, not a generated TypeScript schema:
+aliases, runtime-selected methods and dynamic message payloads need manual tracing.
+Consequently this audit does not assert exhaustive semantic coverage of every
+renderer interface. Native developer-instruction assembly remains unsupported.
+The focused settings tests and existing two-browser regressions cover implemented
+foundations; they do not establish support for extended desktop features.
+
+Audit validation: 51 unit tests and 8 feasibility tests passed, including the
+original desktop/narrow renderer, account states, host recovery and independent
+two-browser facades. The final settings reconnect regression also passed
+separately. Compatibility probing passed; asset integrity verified the original
+archive and 18,926 extracted files. Browser tests used the existing Chromium cache
+at /tmp/webui-playwright. No existing app server was started or reconfigured.
+The evidence inventory contains 195 direct service names, 119 message candidates
+(including dynamic/non-Electron candidates), and 173 facade members.

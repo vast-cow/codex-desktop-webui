@@ -4,8 +4,16 @@ export function rendererServices(bindings: any) {
   const cleanups = new Set<() => void>();
   class Lease extends RpcTarget {
     private cleanup?: () => void;
-    constructor(cleanup: () => void) { super(); this.cleanup = cleanup; cleanups.add(cleanup); }
-    [Symbol.dispose]() { if (this.cleanup) { const cleanup = this.cleanup; this.cleanup = undefined; cleanups.delete(cleanup); cleanup(); } }
+    constructor(cleanup: () => void) {
+      super();
+      this.cleanup = () => {
+        cleanups.delete(this.cleanup!);
+        this.cleanup = undefined;
+        cleanup();
+      };
+      cleanups.add(this.cleanup);
+    }
+    [Symbol.dispose]() { this.cleanup?.(); }
   }
   class Account extends RpcTarget {
     sendRequest(method: string, params: unknown, options: unknown) { return manager.sendRequest(method, params, options); }
@@ -13,7 +21,7 @@ export function rendererServices(bindings: any) {
     getAuthMethod(options: unknown) { return manager.getAuthMethod(options); }
     subscribeAuthStatus(listener: any) {
       const retained = listener.dup();
-      const callback = (event: any) => { void retained(event); };
+      const callback = (event: any) => { void Promise.resolve(retained(event)).catch(() => {}); };
       manager.addAuthStatusCallback(callback);
       return new Lease(() => { manager.removeAuthStatusCallback(callback); retained[Symbol.dispose](); });
     }
@@ -39,7 +47,7 @@ export function rendererServices(bindings: any) {
     subscribe(hostId: string, listener: any) {
       if (hostId !== manager.getHostId()) throw Error(`Unknown execution host: ${hostId}`);
       const retained = listener.dup();
-      void retained({ status: 'ready', manager: new AdmittedManagerFacade(() => manager) });
+      void Promise.resolve(retained({ status: 'ready', manager: new AdmittedManagerFacade(() => manager) })).catch(() => {});
       return new Lease(() => retained[Symbol.dispose]());
     }
     openAccount(hostId: string) {
@@ -50,6 +58,23 @@ export function rendererServices(bindings: any) {
   class ApplicationState extends RpcTarget {
     async read(key: string) { return { value: await host('read', key) }; }
     async write(key: string, value: unknown) { await host('write', key, value); return { success: true }; }
+  }
+  class Settings extends RpcTarget {
+    read(key: string) { return bindings.settings.read(key); }
+    readAll() { return bindings.settings.readAll(); }
+    write(key: string, value: unknown) { return bindings.settings.write(key, value); }
+    subscribe(key: string, listener: any) {
+      const retained = listener.dup();
+      let active = true;
+      let queue = Promise.resolve();
+      let unsubscribe: () => void;
+      try {
+        unsubscribe = bindings.settings.subscribe(key, (value: any) => {
+          queue = queue.then(async () => { if (active) await retained(value); }).catch(() => {});
+        });
+      } catch (error) { active = false; retained[Symbol.dispose](); throw error; }
+      return new Lease(() => { active = false; unsubscribe(); retained[Symbol.dispose](); });
+    }
   }
   class AppInfo extends RpcTarget {
     get() { return appInfo; }
@@ -78,7 +103,7 @@ export function rendererServices(bindings: any) {
   }
   class Root extends RpcTarget {
     get services() { return { codexAccount: new CodexAccountService(), appServerManagers: new Registry(), applicationState: new ApplicationState(),
-      appInfo: new AppInfo(), startup: new Startup(), workspaceRoots: new WorkspaceRoots(), executionPaths: new ExecutionPaths(),
+      settings: new Settings(), appInfo: new AppInfo(), startup: new Startup(), workspaceRoots: new WorkspaceRoots(), executionPaths: new ExecutionPaths(),
       requestUserInputAutoResolution: { enabled: false },
       executionHosts: new ExecutionHosts(), windowAppServerEvents: 'all' }; }
   }

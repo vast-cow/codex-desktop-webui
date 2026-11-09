@@ -83,6 +83,18 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   await first.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'ResizeObserver loop completed with undelivered notifications.' })));
   await expect(first.locator('#webui-compatibility-error')).toHaveCount(0);
   assert.equal(fixture.wss.clients.size, 1);
+  for (const page of [first, second]) await page.evaluate(async () => {
+    const state = (window as any).feasibility;
+    state.settingUpdates = [];
+    state.settingLease = await state.services.settings.subscribe('theme', (value: any) => state.settingUpdates.push(value.effective));
+  });
+  await first.evaluate(async () => { await (window as any).feasibility.services.settings.write('theme', 'dark'); });
+  await expect.poll(() => second.evaluate(() => (window as any).feasibility.settingUpdates.at(-1))).toBe('dark');
+  await first.evaluate(() => (window as any).feasibility.settingLease[Symbol.dispose]());
+  await second.evaluate(async () => { await (window as any).feasibility.services.settings.write('theme', 'light'); });
+  await expect.poll(() => second.evaluate(() => (window as any).feasibility.settingUpdates.at(-1))).toBe('light');
+  assert.equal(await first.evaluate(() => (window as any).feasibility.settingUpdates.at(-1)), 'dark');
+
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.accountUpdates.at(-1)?.status)).toBe('acquired');
   await first.evaluate(() => { (window as any).feasibility.accountLease[Symbol.dispose](); });
   fixture.notify('account/updated', { authMode: 'apikey' });
@@ -142,6 +154,9 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
     await expect(page.locator('#webui-connection-status')).toHaveCount(0);
   }
   assert.equal(fixture.wss.clients.size, 1);
+  await second.evaluate(async () => { await (window as any).feasibility.services.settings.write('theme', 'after-reconnect'); });
+  await expect.poll(() => second.evaluate(() => (window as any).feasibility.settingUpdates.at(-1))).toBe('after-reconnect');
+  assert.equal(await first.evaluate(() => (window as any).feasibility.settingUpdates.at(-1)), 'dark');
   fixture.approval('competing-approval');
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.approvals.length)).toBe(1);
   await Promise.all([first, second].map((page, index) => page.evaluate(async ({ id, decision }) => await (window as any).feasibility.manager.replyWithCommandExecutionApprovalDecision(id, 'competing-approval', decision), { id: fixture.thread.id, decision: index === 0 ? 'accept' : 'decline' })));

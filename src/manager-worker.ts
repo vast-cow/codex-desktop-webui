@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { loadVendorRuntime } from './vendor-runtime.js';
 import { managerAdapters } from './manager-adapters.js';
+import { HostSettings } from './host-settings.js';
 import { HostState } from './host-state.js';
 import { Upstream } from './upstream.js';
 import { CodexAccount } from './codex-account.js';
@@ -17,6 +18,7 @@ const workspaceRoot = resolve(workerData.workspaceRoot);
 if (!(await stat(workspaceRoot)).isDirectory()) throw Error('Configured workspace root is not a directory');
 const vendor = await loadVendorRuntime(root);
 const state = await HostState.open(dataDirectory);
+const settings = new HostSettings(state);
 const turnAdmission = new TurnAdmission(state);
 const mutations = new MutationQueue();
 const upstream = new Upstream(upstreamOptions);
@@ -29,6 +31,10 @@ const clone = vm.runInContext(`(function clone(value) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clone(item)]));
 })`, vendor.loader.context);
 const vmError = vm.runInContext('(message) => new Error(message)', vendor.loader.context);
+const settingsCall = async (call: () => unknown) => {
+  try { return clone(await call()); }
+  catch (error: any) { throw vmError(error.message ?? String(error)); }
+};
 const rendererMutation = async (id: string, dispatch: () => Promise<any>) => {
   try { return await mutations.run(id, dispatch); }
   catch (error: any) { throw vmError(error.message ?? String(error)); }
@@ -81,6 +87,12 @@ parentPort!.on('message', async message => {
         sendFollowUpMessage: (id: string, options: any) => rendererMutation(id, () => manager.sendFollowUpMessage(id, options)),
         startTurn: (id: string, options: any, ...args: any[]) => rendererMutation(id,
           () => turnAdmission.run(id, options, () => manager.startTurn(id, options, ...args))),
+        settings: { read: (key: string) => settingsCall(() => settings.read(key)), readAll: () => settingsCall(() => settings.readAll()),
+          write: (key: string, value: unknown) => settingsCall(() => settings.write(key, value)),
+          subscribe: (key: string, callback: any) => {
+            try { return settings.subscribe(key, value => callback(clone(value))); }
+            catch (error: any) { throw vmError(error.message ?? String(error)); }
+          } },
         codexAccount: { read: () => clone(codexAccount.read()), subscribe: (callback: any) => codexAccount.subscribe(snapshot => callback(clone(snapshot))) },
         appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform, arch: process.arch }),
         host: async (method: string, key: string, value: unknown) => {
