@@ -3,7 +3,8 @@ import { encodeWire, decodeWire } from './wire.js';
 // The Electron router reads this metadata rather than the browser's pathname.
 if (!document.querySelector('meta[name="initial-route"]') && !new URL(location.href).searchParams.has('initialRoute')) {
   const route = document.createElement('meta'); route.name = 'initial-route';
-  route.content = ['/index.html', '/standalone.html'].includes(location.pathname) ? '/' : location.pathname + location.search + location.hash;
+  // The packaged home route targets ChatGPT; reuse its existing Codex new-thread route.
+  route.content = ['/', '/index.html', '/standalone.html'].includes(location.pathname) ? '/hotkey-window/new-thread' : location.pathname + location.search + location.hash;
   document.head.append(route);
 }
 
@@ -69,7 +70,12 @@ window.addEventListener('message', event => {
   socket.onerror = () => showFailure('Cannot connect to the shared manager. Check the host diagnostics and upstream socket configuration.');
   socket.onclose = () => { port.postMessage(null); port.close(); showFailure('Shared-manager connection closed. Reload to reconnect; submitted mutations are never replayed.'); };
 });
-window.addEventListener('error', event => showFailure(event.message));
+window.addEventListener('error', event => {
+  // Browsers defer undelivered ResizeObserver notifications to the next frame.
+  // This layout diagnostic is not an exception or a failed host connection.
+  if (!event.error && ['ResizeObserver loop completed with undelivered notifications.', 'ResizeObserver loop limit exceeded'].includes(event.message)) return;
+  showFailure(event.message);
+});
 window.addEventListener('unhandledrejection', event => {
   if (event.reason instanceof UnsupportedNativeIntegration) { event.preventDefault(); reportUnavailable(event.reason.message); return; }
   showFailure(String(event.reason));

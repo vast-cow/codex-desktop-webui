@@ -77,6 +77,8 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   const secondContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const first = await firstContext.newPage(), second = await secondContext.newPage();
   await connect(first, origin); await connect(second, origin);
+  await first.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'ResizeObserver loop completed with undelivered notifications.' })));
+  await expect(first.locator('#webui-compatibility-error')).toHaveCount(0);
   assert.equal(fixture.wss.clients.size, 1);
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.accountUpdates.at(-1)?.status)).toBe('acquired');
   await first.evaluate(() => { (window as any).feasibility.accountLease[Symbol.dispose](); });
@@ -103,7 +105,7 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.notifications.length)).toBe(1);
   fixture.approval('competing-approval');
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.approvals.length)).toBe(1);
-  await Promise.all([first, second].map(page => page.evaluate(async id => await (window as any).feasibility.manager.replyWithCommandExecutionApprovalDecision(id, 'competing-approval', 'accept'), fixture.thread.id)));
+  await Promise.all([first, second].map((page, index) => page.evaluate(async ({ id, decision }) => await (window as any).feasibility.manager.replyWithCommandExecutionApprovalDecision(id, 'competing-approval', decision), { id: fixture.thread.id, decision: index === 0 ? 'accept' : 'decline' })));
   await expect.poll(() => fixture.frames.filter(frame => frame.id === 'competing-approval' && !frame.method).length).toBe(1);
   await first.close();
   fixture.notify('item/agentMessage/delta', { threadId: fixture.thread.id, turnId, itemId: 'stream-agent', delta: ' after disconnect' });

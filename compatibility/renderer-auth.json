@@ -1,0 +1,11 @@
+{
+  "module": "cE1j",
+  "path": "webview/assets/async/182735.d3d917f28d.js",
+  "inputSha256": "11870f9f8005c5fce0e422bb6aad4840478b1110fe8086a97e7020afc64ce830",
+  "factorySha256": "69f213498651cee70987e26e77b5ac7fc2ee0db7fdf5ef3b19ffe47260077535",
+  "purpose": "Connect the local Codex auth provider to host account snapshots without desktop identity or ChatGPT cloud account services.",
+  "accessModule": {
+    "id": "eFn4",
+    "factorySha256": "26e4a650c39c242a1af44dcb5607a9e5cb1d83b9268362cbb33a0e2e4dedb526"
+  }
+}

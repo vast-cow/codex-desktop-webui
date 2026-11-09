@@ -18,6 +18,10 @@ export async function createAssetHost(root: string) {
     if (!['standalone.html', 'bridge.js', 'wire.js', 'THIRD_PARTY_NOTICES.txt'].includes(path)) throw Error('Invalid generated manifest path');
     files.set('/' + path, { path, hash: String(hash) });
   }
+  for (const patch of manifest.patches ?? []) {
+    if (!files.has('/' + patch.path.slice(8)) || patch.generatedPath !== `patched/${patch.path}` || patch.path.includes('..')) throw Error('Invalid patch path');
+    files.set('/' + patch.path.slice(8), { path: patch.generatedPath, hash: patch.outputSha256 });
+  }
   const entry = files.get('/standalone.html');
   if (!entry || !files.has('/bridge.js')) throw Error('Assets need preparation: run npm run assets:prepare');
   // Validate entry and bridge before listening. Other assets are verified on access.

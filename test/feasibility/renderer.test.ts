@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -8,9 +8,9 @@ import { once } from 'node:events';
 import { chromium, expect } from '@playwright/test';
 import { appServerFixture } from '../support/app-server.js';
 
-test('original renderer shares history, composer submission, approvals, and reconnect across browsers', { timeout: 120000 }, async t => {
+for (const accountType of ['apiKey', 'chatgpt'] as const) test(`original renderer shares history, composer submission, approvals, and reconnect (${accountType})`, { timeout: 120000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'webui-renderer-'));
-  const fixture = await appServerFixture(join(directory, 'server.sock'), directory);
+  const fixture = await appServerFixture(join(directory, 'server.sock'), directory, accountType);
   const child = spawn(process.execPath, ['dist/src/serve.js'], { env: { ...process.env, HOST: '127.0.0.1', PORT: '0',
     CODEX_SOCKET_PATH: join(directory, 'server.sock'), CODEX_SERVER_VERSION: fixture.version,
     CODEX_UPGRADE_PATH: '/rpc', CODEX_WORKSPACE_ROOT: directory, WEBUI_DATA_DIR: join(directory, 'state') }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -66,5 +66,5 @@ test('original renderer shares history, composer submission, approvals, and reco
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
   assert.equal(fixture.frames.filter(frame => frame.id === 'renderer-approval' && !frame.method).length, 1);
   await writeFile('.generated/renderer-feasibility.json', JSON.stringify({ proofGate: 'not-passed', originalRendererFixtureWorkflow: 'passed',
-    liveServer: 'not-tested', fixtureAccount: 'apiKey', fixtureVersion: fixture.version, viewports: [1280, 390], vendorRendererPatches: [] }, null, 2) + '\n');
+    liveServer: 'not-tested', fixtureAccount: accountType, fixtureVersion: fixture.version, viewports: [1280, 390], vendorRendererPatches: JSON.parse(await readFile('.generated/manifest.json', 'utf8')).patches }, null, 2) + '\n');
 });

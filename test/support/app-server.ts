@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
 
 /** Protocol fixture only. Never represents verification against a user's server. */
-export async function appServerFixture(socketPath: string, cwd: string) {
+export async function appServerFixture(socketPath: string, cwd: string, accountType: 'apiKey' | 'chatgpt' = 'apiKey') {
   const server = createServer();
   const wss = new WebSocketServer({ server, path: '/rpc' });
   const frames: any[] = [];
@@ -28,8 +28,8 @@ export async function appServerFixture(socketPath: string, cwd: string) {
     switch (frame.method) {
       case 'initialize': result = { userAgent: 'webui-protocol-fixture/0.0.0' }; break;
       case 'initialized': return;
-      case 'account/read': result = { account: { type: 'apiKey' }, requiresOpenaiAuth: true }; break;
-      case 'getAuthStatus': result = { authMethod: 'apikey' }; break;
+      case 'account/read': result = { account: accountType === 'chatgpt' ? { type: 'chatgpt', email: 'fixture@example.invalid', planType: 'plus', workspaceName: 'Fixture' } : { type: 'apiKey' }, requiresOpenaiAuth: true }; break;
+      case 'getAuthStatus': result = { authMethod: accountType === 'chatgpt' ? 'chatgpt' : 'apikey' }; break;
       case 'account/gatewayOAuth/read': result = { required: false, status: 'notConfigured' }; break;
       case 'config/read': result = { config: { model: 'fixture-model', model_provider: 'openai', approval_policy: 'on-request' }, version: 'fixture', layers: [] }; break;
       case 'configRequirements/read': result = { requirements: null }; break;
@@ -55,7 +55,7 @@ export async function appServerFixture(socketPath: string, cwd: string) {
     socket.send(JSON.stringify({ id: frame.id, result }));
   }));
   server.listen(socketPath); await once(server, 'listening');
-  return { version: '0.127.0', frames, thread, wss, notify,
+  return { version: accountType === 'chatgpt' ? '0.166.0' : '0.127.0', frames, thread, wss, notify,
     approval(id: string) { for (const peer of wss.clients) peer.send(JSON.stringify({ id, method: 'item/commandExecution/requestApproval', params: { threadId: thread.id, turnId: thread.turns.at(-1).id, itemId: 'command', command: 'echo fixture', cwd, reason: 'Fixture approval' } })); },
     async close() { for (const socket of wss.clients) socket.terminate(); wss.close(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }
