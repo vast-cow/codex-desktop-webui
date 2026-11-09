@@ -1,6 +1,6 @@
 # Observed host contracts
 
-These observations come from the pinned packaged modules, not an asserted complete implementation contract. Module import and central-manager execution have been exercised; the original renderer workflow also passes against a temporary protocol fixture; live-server compatibility remains unverified.
+These observations come from the pinned packaged modules, not an asserted complete implementation contract. Module import and central-manager execution have been exercised; the original renderer workflow also passes against a temporary protocol fixture; the pinned live-server workflow now passes as recorded in [the dated verification](verification-2026-11-09.md). The [account service contract](account-compatibility.md) describes the standalone authentication boundary.
 
 ## Central manager
 

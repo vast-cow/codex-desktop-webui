@@ -11,7 +11,7 @@ import { appServerFixture } from '../support/app-server.js';
 for (const accountType of ['apiKey', 'chatgpt'] as const) test(`original renderer shares history, composer submission, approvals, and reconnect (${accountType})`, { timeout: 120000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'webui-renderer-'));
   const fixture = await appServerFixture(join(directory, 'server.sock'), directory, accountType);
-  const child = spawn(process.execPath, ['dist/src/serve.js'], { env: { ...process.env, HOST: '127.0.0.1', PORT: '0',
+  const child = spawn(process.execPath, ['dist/src/serve.js'], { env: { ...process.env, CODEX_SERVER_URL: undefined, HOST: '127.0.0.1', PORT: '0',
     CODEX_SOCKET_PATH: join(directory, 'server.sock'), CODEX_SERVER_VERSION: fixture.version,
     CODEX_UPGRADE_PATH: '/rpc', CODEX_WORKSPACE_ROOT: directory, WEBUI_DATA_DIR: join(directory, 'state') }, stdio: ['ignore', 'pipe', 'pipe'] });
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;

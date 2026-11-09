@@ -1,5 +1,9 @@
 # Feasibility status
 
+The [2026-11-09 account compatibility verification](verification-2026-11-09.md) passes Plan 1 against the real ChatGPT-backed app server `0.166.0`, using two independent original-renderer browser contexts. The following experiments are historical; their unverified live-server and no-renderer-patch statements are superseded by that record. No later milestone is claimed complete.
+
+## Historical feasibility experiments
+
 The plan 1 implementation now passes both a two-browser protocol regression and a two-browser workflow through the unchanged original renderer against a temporary protocol fixture. The milestone's live-server acceptance gate remains unpassed because the target socket path and server version have not been supplied. No later milestone is claimed complete.
 
 ## Reproducing the experiment

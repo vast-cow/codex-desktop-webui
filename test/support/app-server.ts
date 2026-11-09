@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
 
 /** Protocol fixture only. Never represents verification against a user's server. */
-export async function appServerFixture(socketPath: string, cwd: string, accountType: 'apiKey' | 'chatgpt' = 'apiKey') {
+export async function appServerFixture(socketPath: string, cwd: string, accountType: 'apiKey' | 'chatgpt' = 'apiKey', accountState?: { response: unknown; auth: unknown; timeout?: boolean }) {
   const server = createServer();
   const wss = new WebSocketServer({ server, path: '/rpc' });
   const frames: any[] = [];
@@ -28,8 +28,8 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
     switch (frame.method) {
       case 'initialize': result = { userAgent: 'webui-protocol-fixture/0.0.0' }; break;
       case 'initialized': return;
-      case 'account/read': result = { account: accountType === 'chatgpt' ? { type: 'chatgpt', email: 'fixture@example.invalid', planType: 'plus', workspaceName: 'Fixture' } : { type: 'apiKey' }, requiresOpenaiAuth: true }; break;
-      case 'getAuthStatus': result = { authMethod: accountType === 'chatgpt' ? 'chatgpt' : 'apikey' }; break;
+      case 'account/read': if (accountState?.timeout) return; if (accountState) { result = accountState.response; break; } result = { account: accountType === 'chatgpt' ? { type: 'chatgpt', email: 'fixture@example.invalid', planType: 'plus', workspaceName: 'Fixture' } : { type: 'apiKey' }, requiresOpenaiAuth: true }; break;
+      case 'getAuthStatus': if (accountState) { result = accountState.auth; break; } result = { authMethod: accountType === 'chatgpt' ? 'chatgpt' : 'apikey' }; break;
       case 'account/gatewayOAuth/read': result = { required: false, status: 'notConfigured' }; break;
       case 'config/read': result = { config: { model: 'fixture-model', model_provider: 'openai', approval_policy: 'on-request' }, version: 'fixture', layers: [] }; break;
       case 'configRequirements/read': result = { requirements: null }; break;

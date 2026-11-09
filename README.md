@@ -1,6 +1,6 @@
 # Standalone Codex WebUI feasibility harness
 
-Node.js 22 tools for testing reuse of the packaged desktop renderer and central manager. **The original UI passes two-browser fixture tests; the live-server proof gate has not passed.**
+Node.js 22 tools for testing reuse of the packaged desktop renderer and central manager. **Plan 1 passes two-browser fixture and live-server verification for the pinned assets and app server 0.166.0.**
 
 ```sh
 npm ci
@@ -17,4 +17,4 @@ The browser feasibility host listens on `0.0.0.0:3000`; `HOST` and `PORT` overri
 
 The shared-manager browser regression is `npm run test:feasibility` after [browser test setup](docs/network.md#shared-manager-feasibility-regression). It uses a temporary protocol fixture.
 
-See [feasibility findings](docs/feasibility.md) and [host contracts](docs/contracts.md) for current results and remaining work.
+See [feasibility findings](docs/feasibility.md), [host contracts](docs/contracts.md), and [account compatibility](docs/account-compatibility.md) for current results and remaining work.

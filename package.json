@@ -15,7 +15,8 @@
     "upstream:check": "tsx src/check-upstream.ts",
     "dev": "npm run build --silent && tsx src/serve.ts",
     "start": "node dist/src/serve.js",
-    "test:feasibility": "npm run build --silent && node --test dist/test/feasibility/*.test.js"
+    "test:feasibility": "npm run build --silent && node --test dist/test/feasibility/*.test.js",
+    "verify:live": "npm run build --silent && node dist/test/live/verify.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
