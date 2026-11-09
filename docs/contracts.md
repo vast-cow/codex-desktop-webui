@@ -366,3 +366,37 @@ one upstream start. Compatibility probing and original-archive / 18,926-file
 integrity checks passed. Live upstream checking was unavailable because neither
 CODEX_SOCKET_PATH nor CODEX_SERVER_URL was configured; no existing server was
 managed or modified.
+
+### Shared streamed turns and interruption delivery
+
+Stream notifications enter the single bundled manager once. Its existing
+subscriptions fan out to independent browser facades; its accumulated history
+supplies newly attached clients. Browser lease disposal never disposes the
+manager or cancels upstream execution. Brief transport outages retain the same
+RPC session for 30 seconds (browser retries for 25 seconds). Sequenced RPC replay
+suppresses duplicate instruction delivery, including terminal notifications.
+Expired or overflowing sessions require reloading and reading thread history;
+uncertain mutations are never automatically resubmitted.
+
+The host transport shares `turn/interrupt` delivery by `(threadId, turnId)` across
+all facades, including descendant interruption paths. Concurrent and subsequent
+requests share the same result or error. An acknowledgement does not fabricate a
+terminal turn: the original manager still processes server notifications and
+server-backed history. Failed or uncertain requests remain reserved; they are
+not automatically retried. The in-memory ledger permits 4,096 distinct interrupted
+turns per manager lifetime, then rejects new interruptions explicitly rather than
+evicting reservations and risking duplicate mutations. It is not durable across
+host replacement; operators must inspect upstream state after host loss.
+
+Each RPC session has an 8 MiB recovery payload budget. A socket with more than
+8 MiB queued is disconnected; recovery-budget exhaustion retires only that
+browser session. The manager and other subscribers continue. This bounds per
+session transport retention, not the manager's authoritative loaded history or
+the number of sessions. No upstream event identity exists for content-based delta
+deduplication; identical text deltas are legitimate and must be preserved.
+
+The shared-manager integration regression uses two independent browser contexts,
+the pinned manager and real WebSocket transport against a protocol fixture. It
+covers shared streaming, transport replay, browser closure, accumulated history
+recovery, competing interruptions and matching interrupted histories. It does not
+claim verification against a live app server.

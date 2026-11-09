@@ -194,7 +194,14 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
     const snapshot = await page.evaluate(async () => await (window as any).feasibility.manager.getCachedThreadSearchSnapshot());
     assert.equal(snapshot.conversations.find((entry: any) => entry.summary.conversationId === fixture.thread.id)?.summary.title, fixture.thread.name);
   }
-  await second.evaluate(async id => await (window as any).feasibility.manager.interruptConversation(id, 'user'), fixture.thread.id);
+  await Promise.all([second, reconnected].map(page => page.evaluate(async id =>
+    await (window as any).feasibility.manager.interruptConversation(id, 'user-stop'), fixture.thread.id)));
+  for (const page of [second, reconnected]) {
+    await expect.poll(() => page.evaluate(async id => {
+      const history = await (window as any).feasibility.manager.getLoadedConversationHistory(id);
+      return JSON.stringify(history);
+    }, fixture.thread.id)).toContain('interrupted');
+  }
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/interrupt').length, 1);
   const ordinaryFile = join(directory, 'ordinary-workspace.txt');
   await writeFile(ordinaryFile, 'Keep ordinary workspace files');

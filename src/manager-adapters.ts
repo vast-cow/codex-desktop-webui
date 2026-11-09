@@ -1,3 +1,4 @@
+import { TurnInterruptions } from './turn-interruptions.js';
 import { threadListReader } from './thread-list.js';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -22,6 +23,7 @@ export function sessionConfig(value: any): any {
 /** Explicit Node services for the pinned manager, independent of browser leases. */
 export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value, supportsHistory: (version?: string) => boolean = () => false) {
   const scheduler = new HostScheduler();
+  const interruptions = new TurnInterruptions();
   const readThreadList = threadListReader(upstream.sendRequest.bind(upstream));
   const startingThreads = new Set<string>();
   const sendLocks = new Set<string>();
@@ -78,7 +80,9 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
               }
               return { ...value, [id]: { method, params, status: 'reserved' } };
             });
-            try { result = await upstream.sendRequest(method, params); }
+            try { result = method === 'turn/interrupt'
+              ? await interruptions.run(params, () => upstream.sendRequest(method, params))
+              : await upstream.sendRequest(method, params); }
             catch (error) {
               if (lifecycle) await state.updateGlobalState('thread-lifecycle-ledger', value => ({ ...value,
                 [id]: { method, params, status: error instanceof DeliveryError && error.outcome === 'unknown' ? 'unknown' : 'failed',

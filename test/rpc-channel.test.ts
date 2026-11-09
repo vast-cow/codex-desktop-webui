@@ -33,3 +33,30 @@ test('RPC recovery rejects invalid ordering, acknowledgements and buffer overflo
   assert.throws(() => channel.receive('{"ack":0,"seq":0,"payload":"null"}'), /sequence/);
   assert.throws(() => channel.send('x'.repeat(64)), /buffer/);
 });
+
+test('an unacknowledged slow subscriber is bounded without blocking another subscriber', () => {
+  const slow = new RpcChannel(() => {}, 128);
+  const received: unknown[] = [];
+  const healthy = new RpcChannel(() => {});
+  const browser = new RpcChannel(frame => received.push(frame));
+  // Queue packets to model asynchronous WebSocket delivery.
+  const packets: string[] = [], replies: string[] = [];
+  healthy.connect(packet => packets.push(packet));
+  browser.connect(packet => replies.push(packet));
+  const pump = () => {
+    while (packets.length || replies.length) {
+      for (const packet of packets.splice(0)) browser.receive(packet);
+      for (const packet of replies.splice(0)) healthy.receive(packet);
+    }
+  };
+  pump();
+  let bounded = false;
+  for (let index = 0; index < 100; index++) {
+    if (!bounded) {
+      try { slow.send(['delta', index]); } catch { bounded = true; slow.disconnect(); }
+    }
+    healthy.send(['delta', index]); pump();
+  }
+  assert.equal(bounded, true);
+  assert.equal(received.length, 100);
+});

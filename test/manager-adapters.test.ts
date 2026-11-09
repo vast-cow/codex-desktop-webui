@@ -177,3 +177,22 @@ test('failed unarchive retains archive intent and acknowledged completion clears
   assert.deepEqual(state.readValue('pending-thread-archives'), {});
   assert.equal(((await HostState.open(directory)).readValue('thread-lifecycle-ledger') as any).t.status, 'completed');
 });
+
+test('shared transport coalesces competing interruption RPCs over one upstream connection', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'interrupt-adapters-'));
+  const fixture = await appServerFixture(join(directory, 'server.sock'), directory);
+  const upstream = new Upstream({ socketPath: join(directory, 'server.sock') });
+  const adapters = managerAdapters(await HostState.open(join(directory, 'state')), upstream, directory);
+  t.after(async () => { upstream.close(); await adapters.dispose(); await fixture.close(); await rm(directory, { recursive: true, force: true }); });
+  await upstream.connect();
+  const transport = adapters.options.transport;
+  const { turn } = await transport.sendRequest('turn/start', { threadId: fixture.thread.id, input: [] });
+  const params = { threadId: fixture.thread.id, turnId: turn.id };
+  let terminalEvents = 0;
+  upstream.on('notification', frame => { if (frame.method === 'turn/completed') terminalEvents++; });
+  await Promise.all([transport.sendRequest('turn/interrupt', params), transport.sendRequest('turn/interrupt', params)]);
+  await transport.sendRequest('turn/interrupt', params);
+  assert.equal(fixture.frames.filter(frame => frame.method === 'turn/interrupt').length, 1);
+  assert.equal(terminalEvents, 1);
+  assert.equal(fixture.thread.turns.at(-1).status, 'interrupted');
+});
