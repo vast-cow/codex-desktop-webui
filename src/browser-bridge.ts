@@ -86,3 +86,11 @@ void fetch('/manager-status').then(async response => {
   if (!response.ok) showFailure(status.error ?? 'Shared manager unavailable');
   else if (status.rendererCompatibility === 'requires-server-version') showFailure('Set CODEX_SERVER_VERSION to the existing server’s actual semantic version. The original renderer requires this metadata; initialize.userAgent is not a server-version field.');
 }).catch(error => showFailure(`Cannot read host startup diagnostics: ${error.message}`));
+
+// Legacy settings changes are shared across browser devices through the host.
+const legacyEvents = new EventSource('/bridge-events');
+legacyEvents.onmessage = event => {
+  try { window.postMessage(JSON.parse(event.data), location.origin); }
+  catch (error) { showFailure(`Invalid shared settings event: ${String(error)}`); }
+};
+window.addEventListener('pagehide', () => legacyEvents.close(), { once: true });

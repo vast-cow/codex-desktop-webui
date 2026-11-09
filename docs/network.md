@@ -52,8 +52,16 @@ serves diagnostics and rejects RPC upgrades. Set `CODEX_SERVER_VERSION` to the a
 the initialization user-agent is not used as a server version. Without this setting,
 the browser reports missing metadata. `CODEX_WORKSPACE_ROOT` selects an existing
 host directory; it defaults to the host working directory. `PORT=0` requests an
-ephemeral listener for testing. After an upstream disconnect, restart
-the host; it does not automatically reconcile or replay mutations.
+ephemeral listener for testing. After an upstream disconnect, the host retries
+every three seconds using a fresh worker and a new initialization handshake.
+Browser RPC leases close; reload the browser after `/healthz` becomes ready to
+load a fresh snapshot. Requests with unknown outcomes are never replayed.
+Startup connection failures are retried by the same mechanism.
+
+Legacy persisted settings are broadcast through the same-origin `/bridge-events`
+server-sent event endpoint. Each connection receives a persisted snapshot before
+live updates. Reverse proxies must allow streaming without response buffering.
+Slow consumers are disconnected and can reconnect for a fresh snapshot.
 
 An absent socket reports ENOENT; inaccessible sockets report operating-system
 permission errors. An incorrect upgrade path reports a failed WebSocket handshake.

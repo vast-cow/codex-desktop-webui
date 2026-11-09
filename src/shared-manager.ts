@@ -11,6 +11,8 @@ export class SharedManager {
   accountStatus = 'acquiring';
   verificationEvents: Record<string, number> = {};
   error?: string;
+  private exited = false;
+  private closing?: Promise<void>;
   private requests = new Map<string, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   private constructor(readonly worker: Worker) {}
   static async start(root: string, dataDirectory: string, upstream: UpstreamOptions, workspaceRoot = process.cwd()) {
@@ -37,7 +39,7 @@ export class SharedManager {
       }
     });
     worker.on('error', error => { manager.available = false; manager.error = error.message; console.error('Manager worker failed:', error.message); });
-    worker.on('exit', code => { manager.available = false; manager.error ??= `Manager worker exited (${code})`; });
+    worker.on('exit', code => { manager.exited = true; manager.available = false; manager.error ??= `Manager worker exited (${code})`; });
     return manager;
   }
   hostRequest(message: unknown): Promise<any> {
@@ -64,9 +66,14 @@ export class SharedManager {
     socket.on('close', close); socket.on('error', close);
     this.worker.postMessage({ type: 'attach', id, port: port2 }, [port2]);
   }
-  async close() {
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    this.available = false;
+    for (const pending of this.requests.values()) { clearTimeout(pending.timer); pending.reject(Error('Manager closed')); }
+    this.requests.clear();
+    if (this.exited) return Promise.resolve();
     this.worker.postMessage({ type: 'shutdown' });
-    await new Promise<void>(resolve => {
+    return this.closing = new Promise<void>(resolve => {
       const timer = setTimeout(() => { void this.worker.terminate().then(() => resolve()); }, 5000);
       this.worker.once('exit', () => { clearTimeout(timer); resolve(); });
     });

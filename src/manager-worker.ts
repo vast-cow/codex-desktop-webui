@@ -62,7 +62,9 @@ parentPort!.on('message', async message => {
             const base = next[request.key] ?? next[request.recordUpdate.legacyStorageKey];
             Object.defineProperty(next, request.key, { value: vendor.loader.require('waIq').m(clone(base), clone(request.recordUpdate)), enumerable: true, configurable: true, writable: true });
           } else if (request.deleted) delete next[request.key]; else Object.defineProperty(next, request.key, { value: request.value, enumerable: true, configurable: true, writable: true }); return next; });
-          events = [{ type: 'persisted-atom-updated', key: request.key, value: (state.readValue('persisted-atoms') as any)?.[request.key], deleted: request.deleted }];
+          const event = { type: 'persisted-atom-updated', key: request.key, value: (state.readValue('persisted-atoms') as any)?.[request.key], deleted: request.deleted };
+          parentPort!.postMessage({ type: 'legacy-event', event });
+          events = []; // Published once to all browsers, including the writer.
         } else throw Error(`Unsupported native message: ${request.type}`);
         parentPort!.postMessage({ type: 'host-response', id: message.id, result: { events } });
       } catch (error: any) { parentPort!.postMessage({ type: 'host-response', id: message.id, error: error.message }); }

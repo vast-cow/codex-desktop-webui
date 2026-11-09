@@ -150,3 +150,22 @@ independent edits instead of overwriting whole draft maps. Queue execution uses
 independent per-thread start locks and per-message send locks. Accepted message
 IDs are retained for the worker lifetime; durable transport-level deduplication
 across process restarts remains outside this milestone.
+
+## Recovery and legacy event synchronization
+
+The HTTP host supervises its central worker. Failed startup and upstream loss
+trigger a retry every three seconds; retries are serialized and the previous
+worker is closed before a replacement starts. Each replacement acquires current
+account state and initializes a new upstream connection. Pending operations are
+rejected, never transferred to the new worker. Existing browser RPC leases close;
+reload after host recovery to establish new facades and obtain current history.
+
+`GET /bridge-events` carries JSON SSE data frames for legacy settings events.
+The host subscribes before requesting the persisted-atom snapshot, queues changes
+while it loads, then sends the snapshot followed by queued/live changes. Settings
+writes are serialized by HostState and broadcast to all event-stream consumers.
+The POST response does not duplicate the broadcast. Stream disposal removes its
+listener and heartbeat; slow consumers disconnect rather than accumulate an
+unbounded response buffer. Application-state persistence remains host-owned and
+separate from desktop files. This transport does not implement terminals or file
+browser services.
