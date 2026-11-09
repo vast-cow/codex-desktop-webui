@@ -50,6 +50,10 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   for (let index = 0; index < 11; index++) fixture.thread.turns.unshift({ id: `older-${index}`, status: 'completed', error: null,
     items: [{ id: `older-user-${index}`, type: 'userMessage', content: [{ type: 'text', text: `Earlier question ${index}`, text_elements: [] }] },
       { id: `older-agent-${index}`, type: 'agentMessage', text: `Earlier answer ${index}`, phase: 'final_answer' }] });
+  for (let index = 0; index < 60; index++) {
+    const id = `catalog-${index.toString().padStart(3, '0')}`;
+    fixture.threads.set(id, { ...fixture.thread, id, name: id, updatedAt: 1, turns: [] });
+  }
   let manager: SharedManager | undefined;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   let server: Awaited<ReturnType<typeof createAssetHost>> | undefined;
@@ -108,6 +112,14 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
       reasoningEffort: null, collaborationMode: null, intent: 'open', useAppServerPermissionDefault: true });
     if (resumed.status !== 'ready') throw Error(`Resume failed: ${resumed.reason}`);
   });
+  const catalogues = await Promise.all([first, second].map(page => page.evaluate(async () => {
+    const m = (window as any).feasibility.manager;
+    await m.refreshRecentConversations();
+    return (await m.getCachedThreadSearchSnapshot()).conversations.map((entry: any) => entry.summary.conversationId);
+  })));
+  assert.deepEqual(catalogues[0], catalogues[1]);
+  assert.equal(new Set(catalogues[0]).size, 61);
+  assert.ok(fixture.frames.some(frame => frame.method === 'thread/list' && frame.params.cursor != null));
   const history = await second.evaluate(async id => await (window as any).feasibility.manager.getLoadedConversationHistory(id), fixture.thread.id);
   assert.match(JSON.stringify(history), /Previous answer/);
   for (let page = 0; page < 4; page++) await Promise.all([first, second].map(browser => browser.evaluate(async id =>

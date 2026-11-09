@@ -300,3 +300,16 @@ archive and 18,926 extracted files. Browser tests used the existing Chromium cac
 at /tmp/webui-playwright. No existing app server was started or reconfigured.
 The evidence inventory contains 195 direct service names, 119 message candidates
 (including dynamic/non-Electron candidates), and 173 facade members.
+
+Recent-thread discovery drains `thread/list` through the host transport before
+publishing a refresh to the original manager. Only `recent_threads` requests are
+expanded; search and other callers retain their existing page contracts. The host
+uses server-returned `nextCursor` values, shares identical in-flight reads, rejects
+cursor cycles, and deduplicates overlapping pages by ID and newest `updatedAt`.
+Equal timestamps use thread ID ordering. No cursor means a single-response legacy
+fallback; it cannot recover entries the server omits without a continuation.
+There is no persistent transport cache: refresh/reconnect reads current upstream
+state and the bundled manager retains responsibility for live-state reconciliation.
+The server does not promise snapshot isolation across pages; concurrent upstream
+catalog mutations may require a subsequent refresh. No configured live upstream
+was available for this change's verification.

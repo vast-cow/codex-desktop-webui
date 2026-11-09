@@ -1,3 +1,4 @@
+import { threadListReader } from './thread-list.js';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -21,6 +22,7 @@ export function sessionConfig(value: any): any {
 /** Explicit Node services for the pinned manager, independent of browser leases. */
 export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value, supportsHistory: (version?: string) => boolean = () => false) {
   const scheduler = new HostScheduler();
+  const readThreadList = threadListReader(upstream.sendRequest.bind(upstream));
   const startingThreads = new Set<string>();
   const sendLocks = new Set<string>();
   const activeSends = new Map<string, { threadId: string; delivered: boolean }>();
@@ -43,6 +45,7 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     addRequestLifecycleListener(listener: (event: any) => void) { requestListeners.add(listener); return () => { requestListeners.delete(listener); }; },
     async sendRequest(method: string, params?: unknown, _options?: unknown) {
       try {
+        if (method === 'thread/list' && (_options as any)?.source === 'recent_threads') return await readThreadList(params);
         if (method === 'getAuthStatus') {
           const value = await upstream.sendRequest(method, { includeToken: false, refreshToken: false });
           return { authMethod: value.authMethod };

@@ -41,7 +41,12 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
       case 'mcpServerStatus/list': result = { data: [], nextCursor: null }; break;
       case 'permissionProfile/list': result = { data: [{ id: ':read-only', name: 'Read only', allowed: true }], nextCursor: null }; break;
       case 'model/list': result = { data: [{ id: 'fixture-model', model: 'fixture-model', displayName: 'Fixture', isDefault: true, supportedReasoningEfforts: [] }], nextCursor: null }; break;
-      case 'thread/list': result = { data: [...threads.values()], nextCursor: null }; break;
+      case 'thread/list': {
+        const data = [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+        const offset = frame.params.cursor == null ? 0 : Number(frame.params.cursor);
+        const limit = Math.min(frame.params.limit ?? 50, 20);
+        result = { data: data.slice(offset, offset + limit), nextCursor: offset + limit < data.length ? String(offset + limit) : null }; break;
+      }
       case 'thread/start': {
         const created = { ...thread, id: randomUUID(), name: null, turns: [], cwd: frame.params.cwd ?? cwd };
         threads.set(created.id, created);
@@ -100,7 +105,7 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
     socket.send(JSON.stringify({ id: frame.id, result }));
   }));
   server.listen(socketPath); await once(server, 'listening');
-  return { version: accountType === 'chatgpt' ? '0.166.0' : '0.127.0', frames, thread, wss, notify,
+  return { version: accountType === 'chatgpt' ? '0.166.0' : '0.127.0', frames, thread, threads, wss, notify,
     approval(id: string) { for (const peer of wss.clients) peer.send(JSON.stringify({ id, method: 'item/commandExecution/requestApproval', params: { threadId: thread.id, turnId: thread.turns.at(-1).id, itemId: 'command', command: 'echo fixture', cwd, reason: 'Fixture approval' } })); },
     async close() { for (const socket of wss.clients) socket.terminate(); wss.close(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }
