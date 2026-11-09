@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostState } from '../src/host-state.js';
-import { managerAdapters } from '../src/manager-adapters.js';
+import { managerAdapters, sessionConfig } from '../src/manager-adapters.js';
 import { Upstream } from '../src/upstream.js';
 import { appServerFixture } from './support/app-server.js';
 
@@ -60,4 +60,22 @@ test('manager auth transport cannot request or forward credentials', async t => 
   const response = await transport.sendRequest('account/read');
   assert.doesNotMatch(JSON.stringify(response), /secret|private@|Token/);
   assert.deepEqual(calls, [{ method: 'getAuthStatus', params: { includeToken: false, refreshToken: false } }, { method: 'account/read', params: { refreshToken: false } }]);
+});
+
+test('effective shell policy omits absent null fields and preserves configured values', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'manager-shell-'));
+  const upstream = new Upstream({ serverUrl: 'ws://127.0.0.1:1/' });
+  let policy: any = { inherit: null, exclude: null, include_only: null, set: null };
+  upstream.sendRequest = async () => ({ config: { shell_environment_policy: policy, model: 'test' } });
+  const adapters = managerAdapters(await HostState.open(join(directory, 'state')), upstream, directory);
+  t.after(async () => { await adapters.dispose(); await rm(directory, { recursive: true, force: true }); });
+  assert.deepEqual(await adapters.options.settings.readCodexConfig(directory), { model: 'test' });
+  policy = { inherit: 'core', exclude: ['PRIVATE_*'], include_only: null, set: { EXAMPLE: 'value' }, ignore_default_excludes: false };
+  assert.deepEqual((await adapters.options.settings.readCodexConfig(directory)).shell_environment_policy,
+    { inherit: 'core', exclude: ['PRIVATE_*'], set: { EXAMPLE: 'value' }, ignore_default_excludes: false });
+});
+
+test('session config preserves explicit falsy values and invalid policy types', () => {
+  assert.deepEqual(sessionConfig({ absent: null, nested: { absent: null, enabled: false, count: 0, value: '', list: [] }, shell_environment_policy: '' }),
+    { nested: { enabled: false, count: 0, value: '', list: [] }, shell_environment_policy: '' });
 });

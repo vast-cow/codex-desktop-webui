@@ -8,6 +8,16 @@ import { Upstream, type RpcId } from './upstream.js';
 
 export function unsupported(operation: string): never { throw Error(`Host operation unavailable: ${operation}`); }
 
+/** Effective config contains null placeholders that cannot be encoded as TOML session flags. */
+export function sessionConfig(value: any): any {
+  if (Array.isArray(value)) return value.map(sessionConfig);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([, item]) => item !== null)
+    .map(([key, item]) => [key, sessionConfig(item)])
+    .filter(([key, item]) => key !== 'shell_environment_policy' || typeof item !== 'object' || Array.isArray(item) || Object.keys(item as object).length > 0));
+}
+
 /** Explicit Node services for the pinned manager, independent of browser leases. */
 export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value) {
   const scheduler = new HostScheduler();
@@ -40,6 +50,9 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
           const account = value.account == null ? null : Object.fromEntries(['type', 'planType', 'workspaceName']
             .filter(key => typeof value.account[key] === 'string').map(key => [key, value.account[key]]));
           return { account, requiresOpenaiAuth: value.requiresOpenaiAuth };
+        }
+        if (['thread/start', 'thread/resume', 'turn/start'].includes(method) && (params as any)?.config) {
+          params = { ...(params as any), config: sessionConfig((params as any).config) };
         }
         return await upstream.sendRequest(method, params);
       }
@@ -110,7 +123,9 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     readExperimentPersonality: async () => null,
     readFollowUpQueueMode: () => 'queue', readPermissionRefreshEnabled: () => true,
     readDefaultFeatureOverrides: () => ({}),
-    readCodexConfig: async (cwd: string) => normalize((await transport.sendRequest('config/read', { includeLayers: false, cwd })).config),
+    readCodexConfig: async (cwd: string) => {
+      return normalize(sessionConfig((await transport.sendRequest('config/read', { includeLayers: false, cwd })).config));
+    },
     fetchProxyConfig: async () => null,
     isTokenBudgetThread: (id: string) => state.readValue(`token-budget:${id}`) === true,
     readSettings: async (_model: string | null, cwd: string) => {
