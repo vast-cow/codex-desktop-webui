@@ -93,7 +93,13 @@ window.addEventListener('message', event => {
           if (JSON.parse(event.data).session !== session) throw Error('Invalid RPC session handshake');
           ready = true; established = true; outageStarted = 0; status();
           channel.connect(packet => socket.send(packet));
-        } else channel.receive(event.data);
+        } else {
+          const message = JSON.parse(event.data);
+          if (typeof message.webuiNavigate === 'string' && /^\/local\/[a-f0-9-]{36}$/i.test(message.webuiNavigate)) {
+            location.assign(message.webuiNavigate); return;
+          }
+          channel.receive(event.data);
+        }
       } catch (error) { stop(String(error)); }
     };
     socket.onerror = () => {}; // close handles connection failures and bounded retry.

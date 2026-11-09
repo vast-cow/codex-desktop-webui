@@ -11,9 +11,10 @@ import { appServerFixture } from '../support/app-server.js';
 for (const accountType of ['apiKey', 'chatgpt'] as const) test(`original renderer shares history, composer submission, approvals, and reconnect (${accountType})`, { timeout: 120000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'webui-renderer-'));
   const fixture = await appServerFixture(join(directory, 'server.sock'), directory, accountType);
-  const child = spawn(process.execPath, ['dist/src/serve.js'], { env: { ...process.env, CODEX_SERVER_URL: undefined, HOST: '127.0.0.1', PORT: '0',
+  const launch = () => spawn(process.execPath, ['dist/src/serve.js'], { env: { ...process.env, CODEX_SERVER_URL: undefined, HOST: '127.0.0.1', PORT: '0',
     CODEX_SOCKET_PATH: join(directory, 'server.sock'), CODEX_SERVER_VERSION: fixture.version,
     CODEX_UPGRADE_PATH: '/rpc', CODEX_WORKSPACE_ROOT: directory, WEBUI_DATA_DIR: join(directory, 'state') }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let child = launch();
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   let diagnostics = '';
   child.stderr.on('data', data => { diagnostics = (diagnostics + data).slice(-16000); });
@@ -65,6 +66,42 @@ for (const accountType of ['apiKey', 'chatgpt'] as const) test(`original rendere
   assert.equal(fixture.frames.filter(frame => frame.method === 'initialize').length, 1);
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
   assert.equal(fixture.frames.filter(frame => frame.id === 'renderer-approval' && !frame.method).length, 1);
+  // Use the original new-thread route and composer, then open its upstream URL
+  // independently; neither hydration nor refresh may issue thread/start.
+  const creator = await firstContext.newPage();
+  await creator.goto(`${origin}/hotkey-window/new-thread`);
+  await creator.getByRole('textbox', { name: 'Do anything' }).fill('Created through original route');
+  await creator.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => fixture.frames.filter(frame => frame.method === 'thread/start').length).toBe(1);
+  await expect(creator).toHaveURL(/\/local\/[^/]+$/);
+  assert.equal(second.url(), route, 'creation must not navigate the other browser');
+  const createdUrl = creator.url();
+  const id = new URL(createdUrl).pathname.split('/').at(-1)!;
+  assert.ok(fixture.threads.has(id));
+  await expect.poll(() => fixture.threads.get(id).turns.length).toBe(1);
+  fixture.notify('item/started', { threadId: id, turnId: fixture.threads.get(id).turns[0].id,
+    item: { id: 'created-answer', type: 'agentMessage', text: 'Created thread shared history', phase: 'commentary' } });
+  await second.goto(createdUrl);
+  for (const page of [creator, second]) await expect(page.getByText('Created thread shared history', { exact: true })).toBeVisible({ timeout: 30000 });
+  await Promise.all([creator.reload(), second.reload()]);
+  for (const page of [creator, second]) await expect(page.getByText('Created thread shared history', { exact: true })).toBeVisible({ timeout: 30000 });
+  assert.equal(fixture.frames.filter(frame => frame.method === 'thread/start').length, 1);
+  const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
+  child = launch();
+  child.stderr.on('data', data => { diagnostics = (diagnostics + data).slice(-16000); });
+  const restartedOrigin = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error(diagnostics)), 30000);
+    let output = '';
+    child.stdout.on('data', data => {
+      output += data;
+      const match = output.match(/listening on 127\.0\.0\.1:(\d+); manager ready/);
+      if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); }
+    });
+    child.once('exit', code => { clearTimeout(timer); reject(Error(`Restart exited: ${code}`)); });
+  });
+  await Promise.all([creator.goto(`${restartedOrigin}/local/${id}`), second.goto(`${restartedOrigin}/local/${id}`)]);
+  for (const page of [creator, second]) await expect(page.getByText('Created thread shared history', { exact: true })).toBeVisible({ timeout: 30000 });
+  assert.equal(fixture.frames.filter(frame => frame.method === 'thread/start').length, 1);
   await writeFile('.generated/renderer-feasibility.json', JSON.stringify({ proofGate: 'not-passed', originalRendererFixtureWorkflow: 'passed',
     liveServer: 'not-tested', fixtureAccount: accountType, fixtureVersion: fixture.version, viewports: [1280, 390], vendorRendererPatches: JSON.parse(await readFile('.generated/manifest.json', 'utf8')).patches }, null, 2) + '\n');
 });

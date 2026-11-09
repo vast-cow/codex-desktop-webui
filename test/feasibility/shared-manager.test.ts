@@ -131,12 +131,15 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   assert.ok(pages.some(frame => frame.params.cursor != null), 'history must request an older page');
 
   const selectedDirectory = join(directory, 'selected-workspace'); await mkdir(selectedDirectory);
-  const created = await first.evaluate(async cwd => await (window as any).feasibility.manager.startConversation({
+  const create = (page: Page) => page.evaluate(async cwd => await (window as any).feasibility.manager.startConversation({
     input: [], cwd, workspaceRoots: [cwd], useAppServerPermissionDefault: true, clientUserMessageId: 'create-selected-thread',
     collaborationMode: { mode: 'default', settings: { model: 'fixture-alternate', reasoning_effort: null, developer_instructions: null } }
   }, { readThreadCreationInputs: async () => ({ hasDesktopRuntime: false, usesDesktopMcp: false,
     hasDeveloperInstructions: false, isBrowserRuntime: false, instructionOverrides: null,
     readDynamicTools: async () => [] }) }), selectedDirectory);
+  const [created, duplicate] = await Promise.all([create(first), create(second)]);
+  assert.deepEqual(duplicate, created);
+  assert.equal(fixture.frames.filter(frame => frame.method === 'thread/start').length, 1);
   assert.equal(created.status, 'created');
   const creation = fixture.frames.find(frame => frame.method === 'thread/start');
   assert.equal(creation.params.cwd, selectedDirectory);

@@ -42,3 +42,26 @@ test('settings persist and session disposal releases only its own callbacks exac
     assert.equal(disposed, 3);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('projectless allocation is a waitable operation and thread navigation stays in its session', async () => {
+  const navigations: string[][] = [[], []];
+  let allocations = 0;
+  const sessions = navigations.map(events => rendererServices({
+    RpcTarget: class {}, ManagerFacade: class {},
+    navigate: (path: string) => events.push(path),
+    host: async (method: string) => {
+      if (method === 'projectlessRoot') return '/host/workspaces';
+      assert.equal(method, 'projectlessPaths');
+      allocations++;
+      return { cwd: '/host/workspaces/unique', workspaceRoot: '/host/workspaces/unique', outputDirectory: null };
+    }
+  }));
+  const paths = sessions[0].root.services.projectlessThreads.createPaths({});
+  assert.deepEqual(await paths.wait(), await paths.wait());
+  assert.equal(allocations, 1);
+  paths[Symbol.dispose]();
+  assert.equal(await sessions[1].root.services.projectlessThreads.readWorkspaceRoot(), '/host/workspaces');
+  sessions[0].root.services.hotkeyWindowHotkeys.open({ path: '/local/upstream-id' });
+  assert.deepEqual(navigations, [['/local/upstream-id'], []]);
+  for (const session of sessions) session.dispose();
+});

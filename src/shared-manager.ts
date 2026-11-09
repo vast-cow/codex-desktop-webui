@@ -81,6 +81,11 @@ export class SharedManager {
           session = { channel, close };
           this.sessions.set(hello.session, session);
           port1.on('message', frame => {
+            if (typeof frame?.webuiNavigate === 'string') {
+              const socket = session?.socket;
+              if (socket?.readyState === 1) socket.send(JSON.stringify({ webuiNavigate: frame.webuiNavigate }));
+              return;
+            }
             if (frame === null) { close(); return; }
             try { channel.send(frame); } catch { close(); }
           });

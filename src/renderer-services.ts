@@ -40,6 +40,10 @@ export function rendererServices(bindings: any) {
   }
   class AdmittedManagerFacade extends ManagerFacade {
     constructor(getManager: () => any) { super(getManager); }
+    startConversation(options: any, callbacks: any) { return bindings.startConversation(options, callbacks); }
+    resumeConversation(options: any, callbacks?: any) {
+      return bindings.resumeConversation(options, () => super.resumeConversation(options, callbacks));
+    }
     sendFollowUpMessage(id: string, options: any) { return bindings.sendFollowUpMessage(id, options); }
     startTurn(id: string, options: any, ...args: any[]) { return bindings.startTurn(id, options, ...args); }
   }
@@ -101,11 +105,28 @@ export function rendererServices(bindings: any) {
   class ExecutionHosts extends RpcTarget {
     getDefaultHost() { return manager.getHostId(); }
   }
+  class PathsOperation extends RpcTarget {
+    private result: Promise<any>;
+    constructor(options: any) {
+      super();
+      this.result = Promise.resolve(host('projectlessPaths', options));
+      void this.result.catch(() => {});
+    }
+    wait() { return this.result; }
+    [Symbol.dispose]() {}
+  }
+  class ProjectlessThreads extends RpcTarget {
+    readWorkspaceRoot() { return host('projectlessRoot'); }
+    createPaths(options: any) { return new PathsOperation(options); }
+  }
+  class HotkeyWindow extends RpcTarget {
+    open(options: { path: string }) { return bindings.navigate(options.path); }
+  }
   class Root extends RpcTarget {
     get services() { return { codexAccount: new CodexAccountService(), appServerManagers: new Registry(), applicationState: new ApplicationState(),
       settings: new Settings(), appInfo: new AppInfo(), startup: new Startup(), workspaceRoots: new WorkspaceRoots(), executionPaths: new ExecutionPaths(),
       requestUserInputAutoResolution: { enabled: false },
-      executionHosts: new ExecutionHosts(), windowAppServerEvents: 'all' }; }
+      projectlessThreads: new ProjectlessThreads(), hotkeyWindowHotkeys: new HotkeyWindow(), executionHosts: new ExecutionHosts(), windowAppServerEvents: 'all' }; }
   }
   return { root: new Root(), dispose() { for (const cleanup of cleanups) cleanup(); cleanups.clear(); } };
 }

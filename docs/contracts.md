@@ -313,3 +313,56 @@ state and the bundled manager retains responsibility for live-state reconciliati
 The server does not promise snapshot isolation across pages; concurrent upstream
 catalog mutations may require a subsequent refresh. No configured live upstream
 was available for this change's verification.
+
+### Thread creation and resume admission
+
+The browser facade uses the original manager's `startConversation` and
+`resumeConversation` contracts. Creation requires the renderer's stable
+`clientUserMessageId`. The host reserves it durably before invoking the manager,
+shares concurrent calls with that ID, and stores the returned creation result.
+Retries return that result, including the upstream conversation ID; parameters
+and callbacks from a duplicate request do not replace the original request.
+Distinct IDs represent distinct intentional creations. Callers must not reuse an
+ID for a different prompt or workspace.
+
+A crash or exception after reservation leaves an uncertain outcome. The host
+refuses to dispatch that ID again; inspect recent threads before submitting a
+new creation. There is no upstream idempotency API or atomic transaction spanning
+the host ledger and app server, so the crash window cannot be resolved
+automatically. History remains server-backed, not stored in this ledger.
+
+Resume calls pass through the vendor facade (including hydration observer
+adaptation), serialized per conversation alongside direct turn and follow-up
+mutations. The vendor retains responsibility for hydration, execution state,
+thread-start notifications, snapshots, and recent-thread discovery. URL routes
+retain upstream IDs; the original new-thread route is
+`/hotkey-window/new-thread` and existing threads use `/local/<id>`.
+No vendor source or generated asset patch changes are needed.
+
+The new-thread page calls `hotkeyWindowHotkeys.open({ path })` after creation.
+WebUI implements this verified service as navigation of the requesting browser,
+using a session-local control message alongside RPC. Only local thread URLs with
+UUID identities are accepted; the adapter translates the vendor hotkey thread
+path to `/local/<id>`. It never broadcasts navigation to other sessions. The
+browser bridge is regenerated with its manifest hash; original assets remain
+unchanged.
+
+New-thread initialization also requires `projectlessThreads.readWorkspaceRoot()`
+and `createPaths(options)` before the manager creation call. These now reuse the
+host filesystem adapter to allocate a unique directory below the WebUI data
+directory. Output directories are created there when requested; caller-provided
+directory names never select host paths. An explicit remote host ID is rejected.
+`createPaths` returns a disposable RPC operation with `wait()`, as required by
+the bundled cancellation helper. Directory allocation runs once per operation;
+disposing the capability does not delete an allocated workspace.
+
+Validation for thread workflows: build, 56 unit tests, and all 8 feasibility
+tests passed. The original renderer tests cover API-key and ChatGPT account
+fixtures, desktop and narrow browsers, creation through the existing route,
+session-local navigation, shared assistant history, simultaneous refresh, and
+host restart with no additional thread creation. The shared-manager test submits
+the same creation concurrently from independent browser contexts and verifies
+one upstream start. Compatibility probing and original-archive / 18,926-file
+integrity checks passed. Live upstream checking was unavailable because neither
+CODEX_SOCKET_PATH nor CODEX_SERVER_URL was configured; no existing server was
+managed or modified.

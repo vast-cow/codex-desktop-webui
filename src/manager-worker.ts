@@ -1,6 +1,6 @@
 import { parentPort, workerData, type MessagePort } from 'node:worker_threads';
 import vm from 'node:vm';
-import { stat } from 'node:fs/promises';
+import { stat, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { loadVendorRuntime } from './vendor-runtime.js';
@@ -10,6 +10,7 @@ import { HostState } from './host-state.js';
 import { Upstream } from './upstream.js';
 import { CodexAccount } from './codex-account.js';
 import { MutationQueue } from './mutation-queue.js';
+import { ThreadCreation } from './thread-creation.js';
 import { TurnAdmission } from './turn-admission.js';
 import { rendererServices } from './renderer-services.js';
 
@@ -20,6 +21,7 @@ const vendor = await loadVendorRuntime(root);
 const state = await HostState.open(dataDirectory);
 const settings = new HostSettings(state);
 const turnAdmission = new TurnAdmission(state);
+const threadCreation = new ThreadCreation(state);
 const mutations = new MutationQueue();
 const upstream = new Upstream(upstreamOptions);
 upstream.on('verification-event', counts => parentPort!.postMessage({ type: 'verification-event', counts }));
@@ -83,7 +85,16 @@ parentPort!.on('message', async message => {
         parentPort!.postMessage({ type: 'host-response', id: message.id, result: { events } });
       } catch (error: any) { parentPort!.postMessage({ type: 'host-response', id: message.id, error: error.message }); }
     } else if (message.type === 'attach') {
-      const services = factory({ RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
+      const services = factory({
+        navigate: (path: string) => {
+          const match = /^\/(?:local|hotkey-window\/thread)\/([a-f0-9-]{36})$/i.exec(path);
+          if (!match) throw vmError('Unsupported thread navigation');
+          message.port.postMessage({ webuiNavigate: '/local/' + match[1] });
+        },
+        RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
+        startConversation: (options: any, callbacks: any) => settingsCall(() =>
+          threadCreation.run(options, () => manager.startConversation(options, callbacks))),
+        resumeConversation: (options: any, dispatch: () => Promise<any>) => rendererMutation(options.conversationId, dispatch),
         sendFollowUpMessage: (id: string, options: any) => rendererMutation(id, () => manager.sendFollowUpMessage(id, options)),
         startTurn: (id: string, options: any, ...args: any[]) => rendererMutation(id,
           () => turnAdmission.run(id, options, () => manager.startTurn(id, options, ...args))),
@@ -95,7 +106,15 @@ parentPort!.on('message', async message => {
           } },
         codexAccount: { read: () => clone(codexAccount.read()), subscribe: (callback: any) => codexAccount.subscribe(snapshot => callback(clone(snapshot))) },
         appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform, arch: process.arch }),
-        host: async (method: string, key: string, value: unknown) => {
+        host: async (method: string, key: any, value: unknown) => {
+          if (method === 'projectlessRoot') return resolve(dataDirectory, 'workspaces');
+          if (method === 'projectlessPaths') {
+            if (key?.hostId != null && key.hostId !== upstream.hostId) throw vmError('Unknown execution host');
+            const paths = await adapters.options.filesystem.createProjectlessThreadWorkspace();
+            const outputDirectory = key?.createSplitDirectories === false ? null : resolve(paths.workspaceRoot, 'outputs');
+            if (outputDirectory) await mkdir(outputDirectory, { recursive: true });
+            return clone({ ...paths, outputDirectory });
+          }
           if (method === 'workspaceRoots') return clone({ roots: [workspaceRoot], labels: {} });
           if (method === 'homePaths') return clone({ codexHome: resolve(homedir(), '.codex'), workspacesRoot: resolve(dataDirectory, 'workspaces') });
           if (method === 'homeDirectory') return homedir();
