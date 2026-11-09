@@ -19,7 +19,7 @@ export function sessionConfig(value: any): any {
 }
 
 /** Explicit Node services for the pinned manager, independent of browser leases. */
-export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value) {
+export function managerAdapters(state: HostState, upstream: Upstream, dataDirectory: string, normalize: (value: any) => any = value => value, supportsHistory: (version?: string) => boolean = () => false) {
   const scheduler = new HostScheduler();
   const startingThreads = new Set<string>();
   const sendLocks = new Set<string>();
@@ -38,7 +38,7 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     // version-gated features until the operator supplies the target version.
     getAppServerVersion: () => upstream.getSemanticVersion(),
     getCompatibleThreadSortKey: (key: string) => key === 'recency_at' ? 'updated_at' : key,
-    supportsPaginatedThreadHistory: () => false,
+    supportsPaginatedThreadHistory: () => supportsHistory(upstream.getSemanticVersion()),
     getPendingRequestCount: upstream.getPendingRequestCount.bind(upstream),
     addRequestLifecycleListener(listener: (event: any) => void) { requestListeners.add(listener); return () => { requestListeners.delete(listener); }; },
     async sendRequest(method: string, params?: unknown, _options?: unknown) {
@@ -164,11 +164,11 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
   };
   const settings = {
     isBrowserRuntime: false,
-    history: { readThreadTimelineEnabled: () => false, canonicalTurnHistory: false, paginatedHistoryEnabled: false, useTailHydration: false,
+    history: { readThreadTimelineEnabled: () => false, canonicalTurnHistory: false, paginatedHistoryEnabled: true, get useTailHydration() { return transport.supportsPaginatedThreadHistory(); },
       readCatalogConsumptionEnabled: () => false },
     readExperimentPersonality: async () => null,
     readFollowUpQueueMode: () => 'queue', readPermissionRefreshEnabled: () => true,
-    readDefaultFeatureOverrides: () => ({}),
+    readDefaultFeatureOverrides: () => normalize({}),
     readCodexConfig: async (cwd: string) => {
       return normalize(sessionConfig((await transport.sendRequest('config/read', { includeLayers: false, cwd })).config));
     },

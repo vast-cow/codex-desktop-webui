@@ -8,6 +8,7 @@ import { managerAdapters } from './manager-adapters.js';
 import { HostState } from './host-state.js';
 import { Upstream } from './upstream.js';
 import { CodexAccount } from './codex-account.js';
+import { MutationQueue } from './mutation-queue.js';
 import { TurnAdmission } from './turn-admission.js';
 import { rendererServices } from './renderer-services.js';
 
@@ -17,6 +18,7 @@ if (!(await stat(workspaceRoot)).isDirectory()) throw Error('Configured workspac
 const vendor = await loadVendorRuntime(root);
 const state = await HostState.open(dataDirectory);
 const turnAdmission = new TurnAdmission(state);
+const mutations = new MutationQueue();
 const upstream = new Upstream(upstreamOptions);
 upstream.on('verification-event', counts => parentPort!.postMessage({ type: 'verification-event', counts }));
 // Cross-realm records must be ordinary objects in the vendor VM, including RPC results.
@@ -27,7 +29,11 @@ const clone = vm.runInContext(`(function clone(value) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clone(item)]));
 })`, vendor.loader.context);
 const vmError = vm.runInContext('(message) => new Error(message)', vendor.loader.context);
-const adapters = managerAdapters(state, upstream, dataDirectory, clone);
+const rendererMutation = async (id: string, dispatch: () => Promise<any>) => {
+  try { return await mutations.run(id, dispatch); }
+  catch (error: any) { throw vmError(error.message ?? String(error)); }
+};
+const adapters = managerAdapters(state, upstream, dataDirectory, clone, vendor.loader.require('Ehlj').qh);
 const sendRequest = adapters.options.transport.sendRequest;
 adapters.options.transport.sendRequest = async (...args) => {
   try { return clone(await sendRequest(...args)); }
@@ -71,7 +77,10 @@ parentPort!.on('message', async message => {
         parentPort!.postMessage({ type: 'host-response', id: message.id, result: { events } });
       } catch (error: any) { parentPort!.postMessage({ type: 'host-response', id: message.id, error: error.message }); }
     } else if (message.type === 'attach') {
-      const services = factory({ startTurn: (id: string, options: any, ...args: any[]) => turnAdmission.run(id, options, () => manager.startTurn(id, options, ...args)), RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
+      const services = factory({ RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
+        sendFollowUpMessage: (id: string, options: any) => rendererMutation(id, () => manager.sendFollowUpMessage(id, options)),
+        startTurn: (id: string, options: any, ...args: any[]) => rendererMutation(id,
+          () => turnAdmission.run(id, options, () => manager.startTurn(id, options, ...args))),
         codexAccount: { read: () => clone(codexAccount.read()), subscribe: (callback: any) => codexAccount.subscribe(snapshot => callback(clone(snapshot))) },
         appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform, arch: process.arch }),
         host: async (method: string, key: string, value: unknown) => {

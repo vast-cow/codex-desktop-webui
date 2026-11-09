@@ -97,3 +97,25 @@ The shared-manager browser regression now exercises rename from one device,
 interruption from another, archive with the renderer's default cleanup choice,
 and unarchive with restored history. Execution interruption remains authoritative
 in the app server; this host has no separate REPL jobs to kill.
+
+
+## Pagination, creation, and follow-up dispatch
+
+Supported server versions now use the pinned bundle's own history capability
+gate and tail hydration instead of unconditionally disabling pagination. The
+browser protocol regression loads twelve turns through successive cursors from
+two clients, creates an empty thread with an explicit model and directory, and
+checks that it appears in the second client's list. Creation callback settings
+now use vendor-realm objects, avoiding a Cap'n Web serialization failure.
+
+Browser turn starts and follow-ups serialize per thread. The regression verifies
+that concurrent distinct follow-ups become one start and one steer, retaining
+both prompts; previously they could race into two starts. Independent threads
+continue concurrently, and failed dispatches do not poison the queue.
+
+These are protocol-level workflow checks. An exploratory original-composer
+creation check found that the new-chat directory menu has no projects even when
+a host workspace root is configured. Existing-thread composer checks still pass,
+but the new-chat selection/creation UI requires further host-service work. This
+is not a full Plan 2 acceptance result. Upstream/host restart recovery without a
+reload also remains outstanding.

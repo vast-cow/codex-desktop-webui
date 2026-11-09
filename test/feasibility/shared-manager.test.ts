@@ -47,6 +47,9 @@ async function connect(page: Page, origin: string) {
 test('two browsers share vendor history, turns, streaming, approval arbitration, and reconnect', { timeout: 90000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'webui-feasibility-'));
   const fixture = await appServerFixture(join(directory, 'server.sock'), directory);
+  for (let index = 0; index < 11; index++) fixture.thread.turns.unshift({ id: `older-${index}`, status: 'completed', error: null,
+    items: [{ id: `older-user-${index}`, type: 'userMessage', content: [{ type: 'text', text: `Earlier question ${index}`, text_elements: [] }] },
+      { id: `older-agent-${index}`, type: 'agentMessage', text: `Earlier answer ${index}`, phase: 'final_answer' }] });
   let manager: SharedManager | undefined;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   let server: Awaited<ReturnType<typeof createAssetHost>> | undefined;
@@ -57,10 +60,10 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
     if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()));
     await manager?.close(); await fixture.close(); await rm(directory, { recursive: true, force: true });
   });
-  manager = await SharedManager.start(resolve('.generated'), join(directory, 'state'), { socketPath: join(directory, 'server.sock') });
+  manager = await SharedManager.start(resolve('.generated'), join(directory, 'state'), { socketPath: join(directory, 'server.sock'), serverVersion: '0.166.0' });
   const connection = await manager.hostRequest({ type: 'request-app-server-state' });
   assert.equal(connection.events[0].state, 'connected');
-  assert.equal(connection.events[1].appServerVersion, null);
+  assert.equal(connection.events[1].appServerVersion, '0.166.0');
   await Promise.all(['first', 'second'].map(key => manager!.hostRequest({ type: 'persisted-atom-update', key: 'drafts', recordUpdate: { entries: { [key]: { value: key } } } })));
   await manager.hostRequest({ type: 'persisted-atom-update', key: 'drafts', recordUpdate: { entries: { first: { delete: true, expectedValue: 'stale' } } } });
   const persisted = await manager.hostRequest({ type: 'persisted-atom-sync-request' });
@@ -95,6 +98,28 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   });
   const history = await second.evaluate(async id => await (window as any).feasibility.manager.getLoadedConversationHistory(id), fixture.thread.id);
   assert.match(JSON.stringify(history), /Previous answer/);
+  for (let page = 0; page < 4; page++) await Promise.all([first, second].map(browser => browser.evaluate(async id =>
+    await (window as any).feasibility.manager.loadOlderConversationTurnsPage(id), fixture.thread.id)));
+  const pagedHistory = await second.evaluate(async id => await (window as any).feasibility.manager.getLoadedConversationHistory(id), fixture.thread.id);
+  assert.match(JSON.stringify(pagedHistory), /Earlier answer 10/);
+  assert.equal(pagedHistory.isComplete, true);
+  const pages = fixture.frames.filter(frame => frame.method === 'thread/turns/list');
+  assert.ok(pages.some(frame => frame.params.cursor != null), 'history must request an older page');
+
+  const selectedDirectory = join(directory, 'selected-workspace'); await mkdir(selectedDirectory);
+  const created = await first.evaluate(async cwd => await (window as any).feasibility.manager.startConversation({
+    input: [], cwd, workspaceRoots: [cwd], useAppServerPermissionDefault: true, clientUserMessageId: 'create-selected-thread',
+    collaborationMode: { mode: 'default', settings: { model: 'fixture-alternate', reasoning_effort: null, developer_instructions: null } }
+  }, { readThreadCreationInputs: async () => ({ hasDesktopRuntime: false, usesDesktopMcp: false,
+    hasDeveloperInstructions: false, isBrowserRuntime: false, instructionOverrides: null,
+    readDynamicTools: async () => [] }) }), selectedDirectory);
+  assert.equal(created.status, 'created');
+  const creation = fixture.frames.find(frame => frame.method === 'thread/start');
+  assert.equal(creation.params.cwd, selectedDirectory);
+  assert.equal(creation.params.model, 'fixture-alternate');
+  await second.evaluate(async () => await (window as any).feasibility.manager.refreshRecentConversations());
+  const sharedList = await second.evaluate(async () => await (window as any).feasibility.manager.getCachedThreadSearchSnapshot());
+  assert.ok(sharedList.conversations.some((entry: any) => entry.summary.conversationId === created.conversationId));
   await first.evaluate(async id => await (window as any).feasibility.manager.startTurn(id, {
     request: { threadId: id, input: [{ type: 'text', text: 'Fixture turn', text_elements: [] }], clientUserMessageId: 'fixture-submission' },
     context: { useAppServerPermissionDefault: true }
@@ -145,6 +170,21 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   assert.match(JSON.stringify(restored), /Shared stream through reconnect after disconnect/);
   assert.equal(fixture.frames.filter(frame => frame.method === 'initialize').length, 1);
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
+  for (const [page, prompt] of [[second, 'First follow-up'], [reconnected, 'Second follow-up']] as const) {
+    await page.evaluate(({ id, prompt }) => {
+      const state = (window as any).feasibility;
+      state.followup = state.manager.sendFollowUpMessage(id, { prompt, usePermissionSelection: true })
+        .then((result: any) => { state.followupResult = result; }, (error: any) => { state.followupError = String(error); });
+    }, { id: fixture.thread.id, prompt });
+  }
+  await expect.poll(() => fixture.frames.filter(frame => frame.method === 'turn/start').length).toBe(2);
+  await expect.poll(() => fixture.frames.filter(frame => frame.method === 'turn/steer').length).toBe(1);
+  for (const page of [second, reconnected]) {
+    await page.evaluate(async () => await (window as any).feasibility.followup);
+    assert.equal(await page.evaluate(() => (window as any).feasibility.followupError), undefined);
+  }
+  const followups = fixture.frames.filter(frame => ['turn/start', 'turn/steer'].includes(frame.method)).slice(1).map(frame => frame.params.input[0].text).sort();
+  assert.deepEqual(followups, ['First follow-up', 'Second follow-up']);
   await mkdir('.generated', { recursive: true });
   await writeFile('.generated/feasibility.json', JSON.stringify({ proofGate: 'not-passed', fixtureWorkflow: 'passed',
     liveServer: 'not-tested', originalRendererWorkflow: 'see renderer-feasibility.json', checks: ['two browser contexts', 'one upstream', 'nonempty history', 'vendor turn submission', 'streaming', 'first approval wins', 'browser reconnect'] }, null, 2) + '\n');

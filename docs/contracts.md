@@ -131,7 +131,7 @@ VM-realm Errors so they can cross the RPC boundary without serialization failure
 Implemented startup capabilities include `appServerManagers`, account reads/auth
 subscriptions, `applicationState`, `appInfo`, `startup`, and the default execution
 host. Persistent thread workspace associations and unread state use the WebUI
-store. Desktop dynamic tools and deferred archive operations fail explicitly.
+store. Desktop dynamic tools and managed-worktree deletion fail explicitly. Archive intents persist until the upstream archive succeeds or the user unarchives the thread.
 The facade is incomplete for other renderer services.
 
 ### Runtime services exercised by the original renderer
@@ -153,7 +153,7 @@ or uncertain turn delivery retains the claim even if the manager releases with
 `sent=false`. Confirmed unsent attempts can release their claim for retry. A crash
 leaves the reservation in place: safety takes priority over automatically retrying
 a potentially delivered mutation. Distinct message IDs remain independent. This
-ledger covers the manager's queued-send path, not arbitrary RPC mutations. It is
+ledger covers queued sends and direct browser turn starts, not arbitrary RPC mutations. It is
 host-owned, not browser-owned, and currently has no automatic compaction.
 
 ## Recovery and legacy event synchronization
@@ -174,3 +174,23 @@ listener and heartbeat; slow consumers disconnect rather than accumulate an
 unbounded response buffer. Application-state persistence remains host-owned and
 separate from desktop files. This transport does not implement terminals or file
 browser services.
+
+
+## History and browser mutation dispatch
+
+History pagination uses the hash-pinned bundle's `Ehlj.qh` version gate. Unknown
+or older server versions retain legacy history loading. Supported versions enable
+tail hydration and older-turn/item pagination through the original manager.
+Thread-creation settings are normalized into the vendor VM before crossing
+callback RPC boundaries.
+
+Browser turn starts and follow-ups share a per-thread mutation queue. Different
+threads proceed independently. Distinct submissions remain separate; a later
+follow-up observes the preceding dispatch before choosing whether to start or
+steer a turn. A failed dispatch does not block subsequent submissions.
+
+Brief browser network outages retain the worker's RPC session for 30 seconds;
+the browser retries for 25 seconds. Sequence numbers and acknowledgements recover
+missed frames without delivering an RPC instruction twice in that session. Each
+direction has an 8 MiB buffer limit. Expired sessions and replaced workers fail
+explicitly, and their instructions never replay into a new worker.

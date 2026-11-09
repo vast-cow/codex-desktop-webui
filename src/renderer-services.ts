@@ -32,6 +32,7 @@ export function rendererServices(bindings: any) {
   }
   class AdmittedManagerFacade extends ManagerFacade {
     constructor(getManager: () => any) { super(getManager); }
+    sendFollowUpMessage(id: string, options: any) { return bindings.sendFollowUpMessage(id, options); }
     startTurn(id: string, options: any, ...args: any[]) { return bindings.startTurn(id, options, ...args); }
   }
   class Registry extends RpcTarget {
