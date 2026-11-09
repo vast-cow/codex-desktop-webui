@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { HostState } from '../src/host-state.js';
+import { managerAdapters } from '../src/manager-adapters.js';
+import { Upstream } from '../src/upstream.js';
+import { TurnAdmission } from '../src/turn-admission.js';
+
+test('direct browser submissions are fenced concurrently and across restart', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'turn-admission-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const state = await HostState.open(directory);
+  const admission = new TurnAdmission(state);
+  const options = { request: { clientUserMessageId: 'message' } };
+  let dispatches = 0;
+  const send = async () => { dispatches++; return { turnId: 'one' }; };
+  const results = await Promise.allSettled([admission.run('thread', options, send), admission.run('thread', options, send)]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(dispatches, 1);
+  const adapters = managerAdapters(state, new Upstream({ serverUrl: 'ws://127.0.0.1:1/' }), directory);
+  t.after(() => adapters.dispose());
+  assert.equal(await adapters.options.runtime.queuedMessages.acquireSendLock('thread', 'message'), null);
+  const queued = await adapters.options.runtime.queuedMessages.acquireSendLock('thread', 'queued');
+  assert.ok(queued);
+  await assert.rejects(admission.run('thread', { request: { clientUserMessageId: 'queued' } }, send), /already admitted/);
+  await queued.release(true);
+  const restarted = new TurnAdmission(await HostState.open(directory));
+  await assert.rejects(restarted.run('thread', options, send), /already admitted/);
+  const uncertain = { request: { clientUserMessageId: 'uncertain' } };
+  await assert.rejects(restarted.run('thread', uncertain, async () => { throw Error('Connection lost'); }), /Connection lost/);
+  await assert.rejects(restarted.run('thread', uncertain, send), /already admitted/);
+  await restarted.run('thread', { request: { clientUserMessageId: 'distinct' } }, send);
+  await restarted.run('other-thread', options, send);
+  await assert.rejects(restarted.run('thread', {}, send), /stable clientUserMessageId/);
+  assert.equal(dispatches, 3);
+});

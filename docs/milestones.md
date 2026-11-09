@@ -51,3 +51,17 @@ Plan 4: extend compatibility and browser regression coverage to those services,
 account changes during execution, slow clients, upstream restart before/after
 mutation delivery, and complete production packaging review. Existing separate
 prepare/check/build/start commands and exact-hash patches remain in place.
+
+## Direct browser submission admission
+
+Browser `startTurn` RPCs now reserve the same durable thread/message ledger used
+by queued submissions before calling the central manager. Independent browser
+facades cannot dispatch the same submission twice, including after host restart.
+Missing message identities reject explicitly. Failed direct calls remain fenced
+because an RPC rejection cannot prove that no mutation executed; inspect the
+thread before submitting a new message with a new identity. Distinct identities
+remain independent. The ledger has no automatic expiry.
+
+This increment does not complete Plan 2. Automatic browser RPC facade recovery,
+workflow acceptance for pagination/create/rename/archive/interrupt/follow-ups and
+model/directory selection, and full disconnect-timing coverage remain outstanding.

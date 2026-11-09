@@ -8,6 +8,7 @@ import { managerAdapters } from './manager-adapters.js';
 import { HostState } from './host-state.js';
 import { Upstream } from './upstream.js';
 import { CodexAccount } from './codex-account.js';
+import { TurnAdmission } from './turn-admission.js';
 import { rendererServices } from './renderer-services.js';
 
 const { root, dataDirectory, upstream: upstreamOptions } = workerData;
@@ -15,6 +16,7 @@ const workspaceRoot = resolve(workerData.workspaceRoot);
 if (!(await stat(workspaceRoot)).isDirectory()) throw Error('Configured workspace root is not a directory');
 const vendor = await loadVendorRuntime(root);
 const state = await HostState.open(dataDirectory);
+const turnAdmission = new TurnAdmission(state);
 const upstream = new Upstream(upstreamOptions);
 upstream.on('verification-event', counts => parentPort!.postMessage({ type: 'verification-event', counts }));
 // Cross-realm records must be ordinary objects in the vendor VM, including RPC results.
@@ -69,7 +71,7 @@ parentPort!.on('message', async message => {
         parentPort!.postMessage({ type: 'host-response', id: message.id, result: { events } });
       } catch (error: any) { parentPort!.postMessage({ type: 'host-response', id: message.id, error: error.message }); }
     } else if (message.type === 'attach') {
-      const services = factory({ RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
+      const services = factory({ startTurn: (id: string, options: any, ...args: any[]) => turnAdmission.run(id, options, () => manager.startTurn(id, options, ...args)), RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
         codexAccount: { read: () => clone(codexAccount.read()), subscribe: (callback: any) => codexAccount.subscribe(snapshot => callback(clone(snapshot))) },
         appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform, arch: process.arch }),
         host: async (method: string, key: string, value: unknown) => {

@@ -30,11 +30,15 @@ export function rendererServices(bindings: any) {
       return new Lease(() => { active = false; unsubscribe(); retained[Symbol.dispose](); });
     }
   }
+  class AdmittedManagerFacade extends ManagerFacade {
+    constructor(getManager: () => any) { super(getManager); }
+    startTurn(id: string, options: any, ...args: any[]) { return bindings.startTurn(id, options, ...args); }
+  }
   class Registry extends RpcTarget {
     subscribe(hostId: string, listener: any) {
       if (hostId !== manager.getHostId()) throw Error(`Unknown execution host: ${hostId}`);
       const retained = listener.dup();
-      void retained({ status: 'ready', manager: new ManagerFacade(() => manager) });
+      void retained({ status: 'ready', manager: new AdmittedManagerFacade(() => manager) });
       return new Lease(() => retained[Symbol.dispose]());
     }
     openAccount(hostId: string) {

@@ -99,6 +99,11 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
     request: { threadId: id, input: [{ type: 'text', text: 'Fixture turn', text_elements: [] }], clientUserMessageId: 'fixture-submission' },
     context: { useAppServerPermissionDefault: true }
   }), fixture.thread.id);
+  await assert.rejects(second.evaluate(async id => await (window as any).feasibility.manager.startTurn(id, {
+    request: { threadId: id, input: [{ type: 'text', text: 'Fixture turn', text_elements: [] }], clientUserMessageId: 'fixture-submission' },
+    context: { useAppServerPermissionDefault: true }
+  }), fixture.thread.id), /already admitted/);
+  assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
   const turnId = fixture.thread.turns.at(-1).id;
   fixture.notify('item/started', { threadId: fixture.thread.id, turnId, item: { id: 'stream-agent', type: 'agentMessage', text: '', phase: 'final_answer' } });
   fixture.notify('item/agentMessage/delta', { threadId: fixture.thread.id, turnId, itemId: 'stream-agent', delta: 'Shared stream' });
