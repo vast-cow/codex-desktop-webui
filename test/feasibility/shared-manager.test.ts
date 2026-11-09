@@ -127,6 +127,22 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   const reconnected = await firstContext.newPage(); await connect(reconnected, origin);
   const recovered = await reconnected.evaluate(async id => await (window as any).feasibility.manager.getLoadedConversationHistory(id), fixture.thread.id);
   assert.match(JSON.stringify(recovered), /Shared stream through reconnect after disconnect/);
+  await reconnected.evaluate(async id => await (window as any).feasibility.manager.setThreadTitle(id, 'Renamed from another device'), fixture.thread.id);
+  assert.equal(fixture.thread.name, 'Renamed from another device');
+  await second.evaluate(async id => await (window as any).feasibility.manager.interruptConversation(id, 'user'), fixture.thread.id);
+  assert.equal(fixture.frames.filter(frame => frame.method === 'turn/interrupt').length, 1);
+  await reconnected.evaluate(async id => await (window as any).feasibility.manager.archiveConversation(id, { useAppServerPins: false }), fixture.thread.id);
+  assert.equal(fixture.frames.filter(frame => frame.method === 'thread/archive').length, 1);
+  await second.evaluate(async id => await (window as any).feasibility.manager.unarchiveConversation(id, { restorePin: false, useAppServerPins: false }), fixture.thread.id);
+  assert.equal(fixture.frames.filter(frame => frame.method === 'thread/unarchive').length, 1);
+  await second.evaluate(async ({ id, cwd }) => {
+    const result = await (window as any).feasibility.manager.resumeConversation({ conversationId: id,
+      workspaceRoots: [cwd], model: null, reasoningEffort: null, collaborationMode: null,
+      intent: 'open', useAppServerPermissionDefault: true });
+    if (result.status !== 'ready') throw Error(`Restore failed: ${result.reason}`);
+  }, { id: fixture.thread.id, cwd: directory });
+  const restored = await second.evaluate(async id => await (window as any).feasibility.manager.getLoadedConversationHistory(id), fixture.thread.id);
+  assert.match(JSON.stringify(restored), /Shared stream through reconnect after disconnect/);
   assert.equal(fixture.frames.filter(frame => frame.method === 'initialize').length, 1);
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
   await mkdir('.generated', { recursive: true });

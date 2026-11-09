@@ -58,6 +58,7 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
         }
         try {
           const result = await upstream.sendRequest(method, params);
+          if (method === 'thread/archive') await pendingThreadArchives.remove((params as any).threadId);
           if (method === 'turn/start') for (const send of activeSends.values()) {
             if (send.threadId === (params as any)?.threadId) send.delivered = true;
           }
@@ -100,6 +101,10 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
       readWorkspacesRoot: async () => resolve(dataDirectory, 'workspaces'),
       ensureDirectory: (path: string) => mkdir(path, { recursive: true }),
     },
+    // This host does not create or own Git worktrees. Never infer ownership from
+    // arbitrary workspace paths when the renderer archives a thread.
+    getManagedWorktreeRoots: async () => [],
+    getConfiguredWorktreeRoot: async () => resolve(dataDirectory, 'worktrees'),
     getVisualizationRoot: () => null,
     getOpenFileWatchPath: (cwd: string, path: string) => resolve(cwd, path),
     getCodexHome: () => resolve(homedir(), '.codex'),
@@ -112,6 +117,9 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
   };
   const runtime = {
     hasDesktopRuntime: false, preserveWorkspaceSandboxPolicy: true,
+    // Execution belongs to the app server; there are no host-owned REPL jobs.
+    killNodeReplExecutions: () => null,
+    pinnedThreads: async () => null,
     threadMode: () => 'default', parseUrl: (input: string) => { try { return new URL(input); } catch { return null; } },
     createAbortController: () => new AbortController(), accountId: () => null,
     isUsingCopilotInference: async () => false,
@@ -171,9 +179,18 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
       return normalize({ personality: config.personality ?? null, defaultFeatureOverrides: {}, instructionOverrides: null, writingBlocks: false, includeProseDetailLevelInstructions: false });
     },
   };
+  const pendingThreadArchives = {
+    async add(id: string, options: { cwd: string; cleanupWorktree: boolean; silent?: boolean }) {
+      if (options.cleanupWorktree) unsupported('archive with managed worktree cleanup');
+      await state.updateGlobalState('pending-thread-archives', value => ({ ...value, [id]: options }));
+    },
+    remove: (id: string) => state.updateGlobalState('pending-thread-archives', value => {
+      const next = { ...value }; delete next[id]; return next;
+    })
+  };
   return {
     options: { hostId: upstream.hostId, transport, logger, scheduler, storage, savedReadState, filesystem, runtime, settings,
-      pendingThreadArchives: { add: () => unsupported('deferred thread archives'), remove: () => unsupported('deferred thread archives') },
+      pendingThreadArchives,
       threadProjectAssignments: {
         setAssignment: ({ threadId, assignment }: { threadId: string; assignment: unknown }) => state.updateGlobalState('thread-project-assignments', value => ({ ...value, [threadId]: assignment })),
         setProjectless: ({ threadId, projectless }: { threadId: string; projectless: boolean }) => state.updateGlobalState('projectless-thread-ids', value => {

@@ -37,6 +37,14 @@ export async function appServerFixture(socketPath: string, cwd: string, accountT
       case 'mcpServerStatus/list': result = { data: [], nextCursor: null }; break;
       case 'model/list': result = { data: [{ id: 'fixture-model', model: 'fixture-model', displayName: 'Fixture', isDefault: true, supportedReasoningEfforts: [] }], nextCursor: null }; break;
       case 'thread/list': result = { data: [thread], nextCursor: null }; break;
+      case 'thread/name/set': thread.name = frame.params.name; result = {}; notify('thread/name/updated', { threadId: thread.id, threadName: thread.name }); break;
+      case 'turn/interrupt': {
+        const turn = thread.turns.find((turn: any) => turn.id === frame.params.turnId);
+        if (turn) { turn.status = 'interrupted'; notify('turn/completed', { threadId: thread.id, turn }); }
+        result = {}; break;
+      }
+      case 'thread/archive': result = {}; notify('thread/archived', { threadId: thread.id }); break;
+      case 'thread/unarchive': result = { thread }; notify('thread/unarchived', { threadId: thread.id }); break;
       case 'thread/read': result = { thread }; break;
       case 'thread/resume': result = { thread, model: 'fixture-model', modelProvider: 'openai', cwd, approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: { type: 'readOnly' }, reasoningEffort: null }; break;
       case 'thread/loaded/list': result = { data: [thread.id], nextCursor: null }; break;

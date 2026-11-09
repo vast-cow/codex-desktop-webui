@@ -41,7 +41,17 @@ test('manager adapter uses actual upstream account/config and persists host-owne
   await assert.rejects(adapters.options.transport.sendRequest('missing'), /Fixture has no method/);
   assert.equal(failures.length, 1); dispose();
   assert.throws(() => adapters.options.threadExecution.executeDynamicToolCall(), /unavailable/);
-  assert.throws(() => adapters.options.pendingThreadArchives.add(), /unavailable/);
+  await assert.rejects(adapters.options.pendingThreadArchives.add('worktree', { cwd: directory, cleanupWorktree: true }), /unavailable/);
+  await adapters.options.pendingThreadArchives.add('thread', { cwd: directory, cleanupWorktree: false });
+  assert.deepEqual(state.readValue('pending-thread-archives'), { thread: { cwd: directory, cleanupWorktree: false } });
+  await adapters.options.transport.sendRequest('thread/archive', { threadId: 'thread' });
+  assert.deepEqual(state.readValue('pending-thread-archives'), {});
+  await adapters.options.pendingThreadArchives.add('uncertain', { cwd: directory, cleanupWorktree: false });
+  assert.deepEqual((await HostState.open(join(directory, 'state'))).readValue('pending-thread-archives'), {
+    uncertain: { cwd: directory, cleanupWorktree: false }
+  });
+  await adapters.options.pendingThreadArchives.remove('uncertain');
+  assert.deepEqual(state.readValue('pending-thread-archives'), {});
 });
 
 test('manager auth transport cannot request or forward credentials', async t => {

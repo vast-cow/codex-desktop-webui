@@ -83,3 +83,17 @@ recreation after upstream or host restart remains outstanding.
 Validation includes lost acknowledgement replay, sequence validation, buffer
 limits, and simultaneous desktop/narrow browser transport loss during streaming,
 with retained callbacks, subsequent approval arbitration and one upstream turn.
+
+## Archive and thread lifecycle workflows
+
+The pending-archive adapter now persists archive intents instead of rejecting
+all archive operations. Successful upstream archive responses clear the intent;
+unarchive also clears it. Failed or interrupted operations retain their intent
+for inspection and are never automatically replayed. The host does not own Git
+worktrees: archiving an ordinary workspace leaves its files intact, and requests
+requiring managed-worktree cleanup reject explicitly.
+
+The shared-manager browser regression now exercises rename from one device,
+interruption from another, archive with the renderer's default cleanup choice,
+and unarchive with restored history. Execution interruption remains authoritative
+in the app server; this host has no separate REPL jobs to kill.
