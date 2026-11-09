@@ -49,6 +49,7 @@ test('competing approval responses are arbitrated once', async t => {
   assert.equal(client.respond('approval', { decision: 'decline' }), false);
   await client.sendRequest('echo', null);
   assert.equal(frames.filter(f => f.id === 'approval').length, 1);
+  assert.deepEqual(client.verificationEvents, { connections: 1, turnStartDispatches: 0, approvalsReceived: 1, approvalResponses: 1, streamDeltas: 0 });
 });
 test('disconnect marks sent outcomes unknown and never replays them', async t => {
   const { client, peer, frames } = await fixture(t); await client.connect();

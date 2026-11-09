@@ -8,6 +8,8 @@ import { encodeWire, decodeWire } from './wire.js';
 /** A worker belongs to the HTTP host, never to an individual browser. */
 export class SharedManager {
   available = true;
+  accountStatus = 'acquiring';
+  verificationEvents: Record<string, number> = {};
   error?: string;
   private requests = new Map<string, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   private constructor(readonly worker: Worker) {}
@@ -17,14 +19,16 @@ export class SharedManager {
     try {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => finish(Error('Manager startup timed out')), 60000);
-        const message = (event: any) => { if (event.type === 'ready') finish(); };
+        const message = (event: any) => { if (event.type === 'ready') { manager.verificationEvents = event.counts; manager.accountStatus = event.accountStatus; finish(); } };
         const exited = (code: number) => finish(Error(`Manager worker exited during startup (${code})`));
         const finish = (error?: Error) => { clearTimeout(timer); worker.off('error', finish); worker.off('message', message); worker.off('exit', exited); if (error) reject(error); else resolve(); };
         worker.on('error', finish); worker.on('message', message); worker.on('exit', exited);
       });
     } catch (error) { await worker.terminate(); throw error; }
     worker.on('message', message => {
-      if (message.type === 'host-response') {
+      if (message.type === 'verification-event') { manager.verificationEvents = message.counts; }
+      else if (message.type === 'account-status') { manager.accountStatus = message.status; }
+      else if (message.type === 'host-response') {
         const pending = manager.requests.get(message.id);
         if (pending) { clearTimeout(pending.timer); manager.requests.delete(message.id); if (message.error) pending.reject(Error(message.error)); else pending.resolve(message.result); }
       } else if (message.error) {

@@ -31,6 +31,8 @@ async function connect(page: Page, origin: string) {
     const services = await root.services;
     const state: any = { root, services, notifications: [], approvals: [], leases: [] };
     (window as any).feasibility = state;
+    state.accountUpdates = [];
+    state.accountLease = await services.codexAccount.subscribe((snapshot: any) => state.accountUpdates.push(snapshot));
     state.manager = await new Promise((resolve, reject) => {
       state.pendingRegistry = services.appServerManagers.subscribe('local', (event: any) => resolve(event.manager.dup()));
       state.pendingRegistry.then((lease: any) => state.leases.push(lease), reject);
@@ -76,6 +78,10 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   const first = await firstContext.newPage(), second = await secondContext.newPage();
   await connect(first, origin); await connect(second, origin);
   assert.equal(fixture.wss.clients.size, 1);
+  for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.accountUpdates.at(-1)?.status)).toBe('acquired');
+  await first.evaluate(() => { (window as any).feasibility.accountLease[Symbol.dispose](); });
+  fixture.notify('account/updated', { authMode: 'apikey' });
+  await expect.poll(() => second.evaluate(() => (window as any).feasibility.accountUpdates.length)).toBeGreaterThan(1);
   await first.evaluate(async () => {
     const m = (window as any).feasibility.manager;
     await m.refreshRecentConversations();

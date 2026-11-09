@@ -7,6 +7,7 @@ import { loadVendorRuntime } from './vendor-runtime.js';
 import { managerAdapters } from './manager-adapters.js';
 import { HostState } from './host-state.js';
 import { Upstream } from './upstream.js';
+import { CodexAccount } from './codex-account.js';
 import { rendererServices } from './renderer-services.js';
 
 const { root, dataDirectory, upstream: upstreamOptions } = workerData;
@@ -15,6 +16,7 @@ if (!(await stat(workspaceRoot)).isDirectory()) throw Error('Configured workspac
 const vendor = await loadVendorRuntime(root);
 const state = await HostState.open(dataDirectory);
 const upstream = new Upstream(upstreamOptions);
+upstream.on('verification-event', counts => parentPort!.postMessage({ type: 'verification-event', counts }));
 // Cross-realm records must be ordinary objects in the vendor VM, including RPC results.
 const clone = vm.runInContext(`(function clone(value) {
   if (value === null || typeof value !== 'object') return value;
@@ -30,17 +32,20 @@ adapters.options.transport.sendRequest = async (...args) => {
   catch (error: any) { throw vmError(error.message); }
 };
 const manager = new vendor.manager.O3(adapters.options);
+const codexAccount = new CodexAccount(upstream);
+codexAccount.subscribe(snapshot => parentPort!.postMessage({ type: 'account-status', status: snapshot.status, revision: snapshot.revision }));
 const sessions = new Map<string, { port: MessagePort; dispose(): void }>();
 const factory = vm.runInContext(`(${rendererServices.toString()})`, vendor.loader.context);
-upstream.on('notification', frame => { try { manager.onNotification(frame.method, clone(frame.params)); } catch (error: any) { parentPort!.postMessage({ type: 'diagnostic', error: error.message }); } });
+upstream.on('notification', frame => { if (frame.method === 'account/updated' || frame.method === 'account/login/completed') void codexAccount.refresh(); try { manager.onNotification(frame.method, clone(frame.params)); } catch (error: any) { parentPort!.postMessage({ type: 'diagnostic', error: error.message }); } });
 upstream.on('request', frame => { try { manager.onRequest(clone(frame)); } catch (error: any) { parentPort!.postMessage({ type: 'diagnostic', error: error.message }); } });
 upstream.on('disconnected', error => {
+  codexAccount.disconnect();
   for (const session of sessions.values()) { session.port.postMessage(null); session.dispose(); session.port.close(); }
   sessions.clear(); parentPort!.postMessage({ type: 'disconnected', error: error.message });
 });
 await upstream.connect();
-const account = await manager.getAccount();
-parentPort!.postMessage({ type: 'ready', hostId: manager.getHostId(), accountType: account.account?.type ?? null });
+void codexAccount.refresh();
+parentPort!.postMessage({ type: 'ready', counts: upstream.verificationEvents, hostId: manager.getHostId(), accountStatus: codexAccount.read().status });
 parentPort!.on('message', async message => {
   try {
     if (message.type === 'host-request') {
@@ -63,6 +68,7 @@ parentPort!.on('message', async message => {
       } catch (error: any) { parentPort!.postMessage({ type: 'host-response', id: message.id, error: error.message }); }
     } else if (message.type === 'attach') {
       const services = factory({ RpcTarget: vendor.rpc.TF, ManagerFacade: vendor.manager.gR, manager,
+        codexAccount: { read: () => clone(codexAccount.read()), subscribe: (callback: any) => codexAccount.subscribe(snapshot => callback(clone(snapshot))) },
         appInfo: clone({ version: vendor.manifest.applicationVersion, name: 'Standalone Codex WebUI', platform: process.platform, arch: process.arch }),
         host: async (method: string, key: string, value: unknown) => {
           if (method === 'workspaceRoots') return clone({ roots: [workspaceRoot], labels: {} });

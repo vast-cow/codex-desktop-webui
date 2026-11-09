@@ -13,6 +13,8 @@ interface Pending { method: string; resolve(value: unknown): void; reject(error:
 /** One host-owned connection. Browser leases never own or close this transport. */
 export class Upstream extends EventEmitter {
   readonly hostId = 'local';
+  readonly verificationEvents = { connections: 0, turnStartDispatches: 0, approvalsReceived: 0, approvalResponses: 0, streamDeltas: 0 };
+  private recordEvent(key: keyof Upstream['verificationEvents']) { ++this.verificationEvents[key]; this.emit('verification-event', { ...this.verificationEvents }); }
   private socket?: WebSocket;
   private pending = new Map<RpcId, Pending>();
   private serial = 0;
@@ -20,6 +22,7 @@ export class Upstream extends EventEmitter {
   private opening?: Promise<unknown>;
   private serverInfo: unknown;
   private approvals = new Set<RpcId>();
+  private countedApprovals = new Set<RpcId>();
   private readonly timeoutMs: number;
   private readonly path: string;
   constructor(private options: UpstreamOptions) {
@@ -75,6 +78,7 @@ export class Upstream extends EventEmitter {
       this.notify('initialized');
       this.serverInfo = info;
       this.ready = true;
+      this.recordEvent('connections');
       this.emit('ready', info);
       return info;
     } catch (error) { this.fail(socket, error instanceof Error ? error : Error(String(error))); throw error; }
@@ -94,6 +98,7 @@ export class Upstream extends EventEmitter {
       }, this.timeoutMs);
       this.pending.set(id, { method, resolve, reject, timer });
       try {
+        if (method === 'turn/start') this.recordEvent('turnStartDispatches');
         socket.send(JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }), error => {
           if (error) this.fail(socket, error);
         });
@@ -108,8 +113,9 @@ export class Upstream extends EventEmitter {
       if ('id' in frame) {
         if (this.approvals.has(frame.id)) throw Error('Duplicate pending upstream request id');
         this.approvals.add(frame.id);
+        if (frame.method === 'item/commandExecution/requestApproval' || frame.method === 'item/fileChange/requestApproval') { this.countedApprovals.add(frame.id); this.recordEvent('approvalsReceived'); }
         this.emit('request', frame);
-      } else this.emit('notification', frame);
+      } else { if (frame.method === 'item/agentMessage/delta') this.recordEvent('streamDeltas'); this.emit('notification', frame); }
       return;
     }
     if (!('id' in frame) || (('result' in frame) === ('error' in frame))) throw Error('Invalid upstream RPC response');
@@ -122,13 +128,14 @@ export class Upstream extends EventEmitter {
   /** Delete before sending so competing browser responses cannot resolve twice. */
   respond(id: RpcId, result: unknown): boolean {
     if (!this.ready || !this.approvals.delete(id)) return false;
+    if (this.countedApprovals.delete(id)) this.recordEvent('approvalResponses');
     this.socket!.send(JSON.stringify({ id, result }), error => { if (error && this.socket) this.fail(this.socket, error); });
     this.emit('resolved', id);
     return true;
   }
   private fail(socket: WebSocket, error: Error) {
     if (this.socket !== socket) return;
-    this.socket = undefined; this.ready = false; this.serverInfo = undefined; this.approvals.clear();
+    this.socket = undefined; this.ready = false; this.serverInfo = undefined; this.approvals.clear(); this.countedApprovals.clear();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new DeliveryError(`${error.message}; request ${pending.method} may have executed`, 'unknown'));

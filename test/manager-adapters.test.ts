@@ -43,3 +43,21 @@ test('manager adapter uses actual upstream account/config and persists host-owne
   assert.throws(() => adapters.options.threadExecution.executeDynamicToolCall(), /unavailable/);
   assert.throws(() => adapters.options.pendingThreadArchives.add(), /unavailable/);
 });
+
+test('manager auth transport cannot request or forward credentials', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'manager-auth-'));
+  const upstream = new Upstream({ serverUrl: 'ws://127.0.0.1:1/' });
+  const calls: any[] = [];
+  upstream.sendRequest = async (method, params) => {
+    calls.push({ method, params });
+    return method === 'getAuthStatus' ? { authMethod: 'chatgpt', authToken: 'secret' } : {
+      account: { type: 'chatgpt', email: 'private@example.invalid', planType: 'plus', accessToken: 'secret' }, requiresOpenaiAuth: true };
+  };
+  const adapters = managerAdapters(await HostState.open(join(directory, 'state')), upstream, directory);
+  t.after(async () => { await adapters.dispose(); await rm(directory, { recursive: true, force: true }); });
+  const transport = adapters.options.transport;
+  assert.deepEqual(await transport.sendRequest('getAuthStatus', { includeToken: true, refreshToken: true }), { authMethod: 'chatgpt' });
+  const response = await transport.sendRequest('account/read');
+  assert.doesNotMatch(JSON.stringify(response), /secret|private@|Token/);
+  assert.deepEqual(calls, [{ method: 'getAuthStatus', params: { includeToken: false, refreshToken: false } }, { method: 'account/read', params: { refreshToken: false } }]);
+});

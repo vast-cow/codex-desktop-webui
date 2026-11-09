@@ -41,6 +41,8 @@ server.on('request', async (request, response) => {
   if (request.url === '/manager-status' || request.url === '/healthz') {
     response.writeHead(manager?.available ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify({ state: manager?.available ? 'ready' : 'unavailable', error: manager?.available ? undefined : manager?.error ?? startupError,
+      verificationEvents: manager?.verificationEvents,
+      accountStatus: manager?.available ? manager.accountStatus : 'connection-unavailable',
       rendererServices: manager?.available ? 'limited' : 'unavailable',
       rendererCompatibility: process.env.CODEX_SERVER_VERSION ? 'requires-live-verification' : 'requires-server-version', proofGate: 'not-passed' })); return;
   }

@@ -1,6 +1,6 @@
 /** Evaluated in the vendor VM so Cap'n Web sees its own object prototypes. */
 export function rendererServices(bindings: any) {
-  const { RpcTarget, ManagerFacade, manager, host, appInfo } = bindings;
+  const { RpcTarget, ManagerFacade, manager, host, appInfo, codexAccount } = bindings;
   const cleanups = new Set<() => void>();
   class Lease extends RpcTarget {
     private cleanup?: () => void;
@@ -16,6 +16,18 @@ export function rendererServices(bindings: any) {
       const callback = (event: any) => { void retained(event); };
       manager.addAuthStatusCallback(callback);
       return new Lease(() => { manager.removeAuthStatusCallback(callback); retained[Symbol.dispose](); });
+    }
+  }
+  class CodexAccountService extends RpcTarget {
+    read() { return codexAccount.read(); }
+    subscribe(listener: any) {
+      const retained = listener.dup();
+      let active = true;
+      let queue = Promise.resolve();
+      const unsubscribe = codexAccount.subscribe((snapshot: any) => {
+        queue = queue.then(async () => { if (active) await retained(snapshot); }).catch(() => {});
+      });
+      return new Lease(() => { active = false; unsubscribe(); retained[Symbol.dispose](); });
     }
   }
   class Registry extends RpcTarget {
@@ -60,7 +72,7 @@ export function rendererServices(bindings: any) {
     getDefaultHost() { return manager.getHostId(); }
   }
   class Root extends RpcTarget {
-    get services() { return { appServerManagers: new Registry(), applicationState: new ApplicationState(),
+    get services() { return { codexAccount: new CodexAccountService(), appServerManagers: new Registry(), applicationState: new ApplicationState(),
       appInfo: new AppInfo(), startup: new Startup(), workspaceRoots: new WorkspaceRoots(), executionPaths: new ExecutionPaths(),
       requestUserInputAutoResolution: { enabled: false },
       executionHosts: new ExecutionHosts(), windowAppServerEvents: 'all' }; }

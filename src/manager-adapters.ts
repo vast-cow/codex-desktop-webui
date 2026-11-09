@@ -30,7 +30,19 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
     getPendingRequestCount: upstream.getPendingRequestCount.bind(upstream),
     addRequestLifecycleListener(listener: (event: any) => void) { requestListeners.add(listener); return () => { requestListeners.delete(listener); }; },
     async sendRequest(method: string, params?: unknown, _options?: unknown) {
-      try { return await upstream.sendRequest(method, params); }
+      try {
+        if (method === 'getAuthStatus') {
+          const value = await upstream.sendRequest(method, { includeToken: false, refreshToken: false });
+          return { authMethod: value.authMethod };
+        }
+        if (method === 'account/read') {
+          const value = await upstream.sendRequest(method, { refreshToken: false });
+          const account = value.account == null ? null : Object.fromEntries(['type', 'planType', 'workspaceName']
+            .filter(key => typeof value.account[key] === 'string').map(key => [key, value.account[key]]));
+          return { account, requiresOpenaiAuth: value.requiresOpenaiAuth };
+        }
+        return await upstream.sendRequest(method, params);
+      }
       catch (error) { for (const listener of requestListeners) listener({ type: 'failed', hostId: upstream.hostId, method, error }); throw error; }
     }
   };
