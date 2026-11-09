@@ -1,4 +1,4 @@
-import { encodeWire, decodeWire } from './wire.js';
+import { RpcChannel } from './rpc-channel.js';
 
 // The Electron router reads this metadata rather than the browser's pathname.
 if (!document.querySelector('meta[name="initial-route"]') && !new URL(location.href).searchParams.has('initialRoute')) {
@@ -57,18 +57,59 @@ window.addEventListener('message', event => {
   const port: MessagePort = event.data.port;
   if (!port) { showFailure('Renderer did not provide an app-host MessagePort'); return; }
   const url = new URL('/app-host', window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const socket = new WebSocket(url);
-  const pending: unknown[] = [];
-  let opened = false;
+  const session = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const n = crypto.getRandomValues(new Uint8Array(1))[0] & 15; return (c === 'x' ? n : (n & 3) | 8).toString(16);
+  });
+  let socket: WebSocket;
+  let established = false, stopped = false;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let outageStarted = 0;
+  const status = (message?: string) => {
+    let panel = document.getElementById('webui-connection-status');
+    if (!message) { panel?.remove(); return; }
+    if (!panel && document.body) { panel = document.createElement('div'); panel.id = 'webui-connection-status';
+      panel.setAttribute('role', 'status'); panel.style.cssText = 'position:fixed;top:8px;right:8px;z-index:2147483646;padding:12px;background:Canvas;color:CanvasText;font:14px system-ui'; document.body.append(panel); }
+    if (panel) panel.textContent = message;
+  };
+  const channel = new RpcChannel(frame => port.postMessage(frame));
+  const stop = (error?: string) => {
+    if (stopped) return;
+    stopped = true; clearTimeout(retry); channel.disconnect(); socket?.close(); port.postMessage(null); port.close(); status();
+    if (error) showFailure(error);
+  };
   port.onmessage = event => {
-    if (event.data === null) { socket.close(); return; }
-    if (opened) socket.send(encodeWire(event.data)); else pending.push(event.data);
+    if (event.data === null) { stop(); return; }
+    try { channel.send(event.data); } catch (error) { stop(String(error)); }
   };
   port.start();
-  socket.onopen = () => { opened = true; for (const frame of pending.splice(0)) socket.send(encodeWire(frame)); };
-  socket.onmessage = event => { try { port.postMessage(decodeWire(event.data)); } catch (error) { showFailure(String(error)); socket.close(); } };
-  socket.onerror = () => showFailure('Cannot connect to the shared manager. Check the host diagnostics and upstream socket configuration.');
-  socket.onclose = () => { port.postMessage(null); port.close(); showFailure('Shared-manager connection closed. Reload to reconnect; submitted mutations are never replayed.'); };
+  const connect = () => {
+    if (stopped) return;
+    socket = new WebSocket(url);
+    let ready = false;
+    socket.onopen = () => socket.send(JSON.stringify({ session, resume: established }));
+    socket.onmessage = event => {
+      try {
+        if (!ready) {
+          if (JSON.parse(event.data).session !== session) throw Error('Invalid RPC session handshake');
+          ready = true; established = true; outageStarted = 0; status();
+          channel.connect(packet => socket.send(packet));
+        } else channel.receive(event.data);
+      } catch (error) { stop(String(error)); }
+    };
+    socket.onerror = () => {}; // close handles connection failures and bounded retry.
+    socket.onclose = event => {
+      channel.disconnect();
+      if (stopped) return;
+      if (event.code === 4009 || event.code === 1003 || event.code === 1008) {
+        stop('Shared-manager RPC session ended. Inspect the thread before reloading; uncertain mutations are never replayed.'); return;
+      }
+      outageStarted ||= Date.now();
+      if (Date.now() - outageStarted > 25000) { stop('Cannot recover the shared-manager connection. Inspect the thread before reloading.'); return; }
+      status('Reconnecting to the shared manager…'); retry = setTimeout(connect, 500);
+    };
+  };
+  window.addEventListener('pagehide', () => stop(), { once: true });
+  connect();
 });
 window.addEventListener('error', event => {
   // Browsers defer undelivered ResizeObserver notifications to the next frame.

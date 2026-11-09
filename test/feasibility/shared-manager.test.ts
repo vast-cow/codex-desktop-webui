@@ -108,16 +108,25 @@ test('two browsers share vendor history, turns, streaming, approval arbitration,
   fixture.notify('item/started', { threadId: fixture.thread.id, turnId, item: { id: 'stream-agent', type: 'agentMessage', text: '', phase: 'final_answer' } });
   fixture.notify('item/agentMessage/delta', { threadId: fixture.thread.id, turnId, itemId: 'stream-agent', delta: 'Shared stream' });
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.notifications.length)).toBe(1);
+  // Interrupt both transports without replacing either page or its RPC facade.
+  for (const socket of sockets.clients) socket.terminate();
+  fixture.notify('item/agentMessage/delta', { threadId: fixture.thread.id, turnId, itemId: 'stream-agent', delta: ' through reconnect' });
+  for (const page of [first, second]) {
+    await expect.poll(() => page.evaluate(() => (window as any).feasibility.notifications.length)).toBe(2);
+    await expect(page.locator('#webui-compatibility-error')).toHaveCount(0);
+    await expect(page.locator('#webui-connection-status')).toHaveCount(0);
+  }
+  assert.equal(fixture.wss.clients.size, 1);
   fixture.approval('competing-approval');
   for (const page of [first, second]) await expect.poll(() => page.evaluate(() => (window as any).feasibility.approvals.length)).toBe(1);
   await Promise.all([first, second].map((page, index) => page.evaluate(async ({ id, decision }) => await (window as any).feasibility.manager.replyWithCommandExecutionApprovalDecision(id, 'competing-approval', decision), { id: fixture.thread.id, decision: index === 0 ? 'accept' : 'decline' })));
   await expect.poll(() => fixture.frames.filter(frame => frame.id === 'competing-approval' && !frame.method).length).toBe(1);
   await first.close();
   fixture.notify('item/agentMessage/delta', { threadId: fixture.thread.id, turnId, itemId: 'stream-agent', delta: ' after disconnect' });
-  await expect.poll(() => second.evaluate(() => (window as any).feasibility.notifications.length)).toBe(2);
+  await expect.poll(() => second.evaluate(() => (window as any).feasibility.notifications.length)).toBe(3);
   const reconnected = await firstContext.newPage(); await connect(reconnected, origin);
   const recovered = await reconnected.evaluate(async id => await (window as any).feasibility.manager.getLoadedConversationHistory(id), fixture.thread.id);
-  assert.match(JSON.stringify(recovered), /Shared stream after disconnect/);
+  assert.match(JSON.stringify(recovered), /Shared stream through reconnect after disconnect/);
   assert.equal(fixture.frames.filter(frame => frame.method === 'initialize').length, 1);
   assert.equal(fixture.frames.filter(frame => frame.method === 'turn/start').length, 1);
   await mkdir('.generated', { recursive: true });

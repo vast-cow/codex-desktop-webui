@@ -15,7 +15,7 @@ export async function createAssetHost(root: string) {
     files.set('/' + path.slice('webview/'.length), { path, hash: String(hash) });
   }
   for (const [path, hash] of Object.entries(manifest.generatedFiles ?? {})) {
-    if (!['standalone.html', 'bridge.js', 'wire.js', 'THIRD_PARTY_NOTICES.txt'].includes(path)) throw Error('Invalid generated manifest path');
+    if (!['standalone.html', 'bridge.js', 'wire.js', 'rpc-channel.js', 'THIRD_PARTY_NOTICES.txt'].includes(path)) throw Error('Invalid generated manifest path');
     files.set('/' + path, { path, hash: String(hash) });
   }
   for (const patch of manifest.patches ?? []) {

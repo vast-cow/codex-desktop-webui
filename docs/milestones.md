@@ -65,3 +65,21 @@ remain independent. The ledger has no automatic expiry.
 This increment does not complete Plan 2. Automatic browser RPC facade recovery,
 workflow acceptance for pagination/create/rename/archive/interrupt/follow-ups and
 model/directory selection, and full disconnect-timing coverage remain outstanding.
+
+## Browser transport recovery
+
+Brief network outages now reconnect without a page reload or replacing browser
+RPC facades. The host retains each browser's worker port and subscriptions for
+30 seconds; the browser retries for 25 seconds. Sequence numbers and cumulative
+acknowledgements recover missed frames while delivering each RPC instruction
+once within that session. Buffers are bounded to 8 MiB per direction. A resumed
+connection can replace a half-open transport. Separate browser sessions retain
+independent disposal and buffers.
+
+An expired session or a replaced host worker explicitly ends RPC recovery.
+Instructions are never replayed into a fresh worker. Automatic service/facade
+recreation after upstream or host restart remains outstanding.
+
+Validation includes lost acknowledgement replay, sequence validation, buffer
+limits, and simultaneous desktop/narrow browser transport loss during streaming,
+with retained callbacks, subsequent approval arbitration and one upstream turn.

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import type WebSocket from 'ws';
 import type { UpstreamOptions } from './upstream.js';
-import { encodeWire, decodeWire } from './wire.js';
+import { RpcChannel } from './rpc-channel.js';
 
 /** A worker belongs to the HTTP host, never to an individual browser. */
 export class SharedManager {
@@ -11,6 +11,7 @@ export class SharedManager {
   accountStatus = 'acquiring';
   verificationEvents: Record<string, number> = {};
   error?: string;
+  private sessions = new Map<string, { channel: RpcChannel; socket?: WebSocket; timer?: NodeJS.Timeout; close(): void }>();
   private exited = false;
   private closing?: Promise<void>;
   private requests = new Map<string, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
@@ -50,25 +51,66 @@ export class SharedManager {
     });
   }
   attach(socket: WebSocket) {
-    if (!this.available) { socket.close(1013, this.error?.slice(0, 100) ?? 'Manager unavailable'); return; }
-    const id = randomUUID(), { port1, port2 } = new MessageChannel();
-    let closed = false;
-    const close = () => { if (closed) return; closed = true; this.worker.postMessage({ type: 'detach', id }); port1.close(); socket.close(); };
-    port1.on('message', frame => {
-      if (frame === null) { close(); return; }
-      if (socket.bufferedAmount > 8 * 1024 * 1024) { socket.close(1013, 'Client cannot keep up; reconnect'); close(); return; }
-      try { socket.send(encodeWire(frame)); } catch (error) { console.error('Browser RPC encoding failed:', error); close(); }
+    if (!this.available) { socket.close(1013, 'Manager unavailable'); return; }
+    const handshakeTimer = setTimeout(() => socket.close(1008, 'Session handshake timed out'), 5000);
+    socket.once('close', () => clearTimeout(handshakeTimer));
+    socket.once('error', () => {});
+    socket.once('message', (data, binary) => {
+      clearTimeout(handshakeTimer);
+      try {
+        const hello = JSON.parse(data.toString());
+        if (binary || typeof hello.session !== 'string' || !/^[a-f0-9-]{36}$/.test(hello.session) || typeof hello.resume !== 'boolean') throw Error('Invalid session handshake');
+        let session = this.sessions.get(hello.session);
+        if (!session && hello.resume) { socket.close(4009, 'RPC session expired; inspect thread before reconnecting'); return; }
+        if (session?.socket) {
+          if (!hello.resume) { socket.close(1008, 'RPC session already connected'); return; }
+          // A network partition may leave the previous TCP connection half open.
+          const previous = session.socket; session.socket = undefined;
+          session.channel.disconnect(); previous.close(4009, 'RPC transport replaced');
+        }
+        if (!session) {
+          const id = randomUUID(), { port1, port2 } = new MessageChannel();
+          const channel = new RpcChannel(frame => port1.postMessage(frame));
+          const close = () => {
+            const current = this.sessions.get(hello.session);
+            if (!current) return;
+            this.sessions.delete(hello.session); clearTimeout(current.timer);
+            current.channel.disconnect(); current.socket?.close(4009, 'RPC session ended');
+            this.worker.postMessage({ type: 'detach', id }); port1.close();
+          };
+          session = { channel, close };
+          this.sessions.set(hello.session, session);
+          port1.on('message', frame => {
+            if (frame === null) { close(); return; }
+            try { channel.send(frame); } catch { close(); }
+          });
+          this.worker.postMessage({ type: 'attach', id, port: port2 }, [port2]);
+        }
+        const current = session;
+        clearTimeout(current.timer); current.socket = socket;
+        const suspend = () => {
+          if (current.socket !== socket) return;
+          current.socket = undefined; current.channel.disconnect();
+          current.timer = setTimeout(current.close, 30000); current.timer.unref();
+        };
+        socket.on('close', suspend); socket.on('error', suspend);
+        socket.on('message', (packet, binary) => {
+          if (current.socket !== socket) return;
+          try { if (binary) throw Error('Binary RPC frame'); current.channel.receive(packet.toString()); }
+          catch { current.close(); }
+        });
+        socket.send(JSON.stringify({ session: hello.session }));
+        current.channel.connect(packet => {
+          if (socket.bufferedAmount > 8 * 1024 * 1024) { socket.close(1013, 'Client cannot keep up'); return; }
+          socket.send(packet);
+        });
+      } catch { socket.close(1003, 'Invalid session handshake'); }
     });
-    socket.on('message', (data, binary) => {
-      try { if (binary) throw Error('Binary browser frames unsupported'); port1.postMessage(decodeWire(data.toString())); }
-      catch (error) { console.error('Browser RPC decoding failed:', error); socket.close(1003, 'Invalid RPC frame'); close(); }
-    });
-    socket.on('close', close); socket.on('error', close);
-    this.worker.postMessage({ type: 'attach', id, port: port2 }, [port2]);
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.available = false;
+    for (const session of this.sessions.values()) session.close();
     for (const pending of this.requests.values()) { clearTimeout(pending.timer); pending.reject(Error('Manager closed')); }
     this.requests.clear();
     if (this.exited) return Promise.resolve();
