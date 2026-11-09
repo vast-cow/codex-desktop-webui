@@ -118,7 +118,7 @@ export function managerAdapters(state: HostState, upstream: Upstream, dataDirect
   };
   const settings = {
     isBrowserRuntime: false,
-    history: { canonicalTurnHistory: false, paginatedHistoryEnabled: false, useTailHydration: false,
+    history: { readThreadTimelineEnabled: () => false, canonicalTurnHistory: false, paginatedHistoryEnabled: false, useTailHydration: false,
       readCatalogConsumptionEnabled: () => false },
     readExperimentPersonality: async () => null,
     readFollowUpQueueMode: () => 'queue', readPermissionRefreshEnabled: () => true,
